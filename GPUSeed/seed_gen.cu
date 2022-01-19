@@ -1120,8 +1120,8 @@ mem_seed_v *seed_gpu(int argc, char **argv, int n_reads) {
 	}*/
 
 	// load index
-	//printf("Argv1 %s Argv2 %s\n",argv[1],argv[2]);
-	char *prefix = argv[1];
+	//printf("Argv1 %s Argv2 %s\n",argv[3],argv[4]);
+	char *prefix = argv[3];
 	if (print_stats)
 		fprintf(stderr, "Loading index from file and copying it to GPU...\n");
 	char *str = (char*)calloc(strlen(prefix) + 10, 1);
@@ -1175,7 +1175,7 @@ mem_seed_v *seed_gpu(int argc, char **argv, int n_reads) {
 
 	if (print_stats)
     	fprintf(stderr, "\n-----------------------------------------------------------------------------------------------------------\n");
-	FILE *read_file = fopen(argv[2], "r");
+	FILE *read_file = fopen(argv[4], "r");
 
 	// open reads file (fasta format) and copying reads into read buffer in a concatenated fashion.
 	int all_done = 0;
@@ -1589,7 +1589,7 @@ mem_seed_v *seed_gpu(int argc, char **argv, int n_reads) {
 		//printf("Total reads: %d\n",total_reads);
 		counter = (int*)calloc(total_reads,sizeof(int));
 		//else
-		//printf("Total reads: %d\n",total_reads);
+		//printf("Total reads: %d, Reads_processed: %d\n",total_reads, reads_processed);
 		int i, j , k;
 		for (i = 0, j = 0; i < total_reads; i++) {
 			int y;
@@ -1605,6 +1605,8 @@ mem_seed_v *seed_gpu(int argc, char **argv, int n_reads) {
 			//printf("(%d) Seeds: (%d)\n",k, counter[i]);
 			//int counter_seeds = 0;
 			gpu_results[k].a = (mem_seed_t*)malloc(counter[i]*sizeof(mem_seed_t));
+			if(gpu_results[k].a == NULL) exit(1);
+			
 			int y;
 			total_n_ref_pos_fow_rev += n_ref_pos_fow_rev[i];
 			//if (is_smem) fprintf(stdout, "/*===================================SMEM seeds in read no. %d (Read[begin, End] -> starting position(s) on the reference)===================================*/\n", reads_processed + i  + 1);
@@ -1635,7 +1637,7 @@ mem_seed_v *seed_gpu(int argc, char **argv, int n_reads) {
 		gpu_results[k].seed_counter = counter[i];
 		gpu_results[k].n = total_reads;
 		gpu_results[k].m = n_seeds_sum_fow_rev;
-		//printf("(%d) Seeds: %d, Reads: %ld, Totals: %ld\n",i,gpu_results[i].seed_counter, gpu_results[i].n, gpu_results[i].m);
+		//printf("(%d) Seeds: %d, Reads: %ld, Totals: %ld\n",k,gpu_results[i].seed_counter, gpu_results[k].n, gpu_results[k].m);
 		}
 
 		reads_processed = reads_processed + total_reads;

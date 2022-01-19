@@ -159,8 +159,6 @@ int main_mem(int argc, char *argv[])
 	mem_pestat_t pes[4];
 	ktp_aux_t aux;
 
-	printf("Number of arguments %d and strings %s and %s\n",argc,argv[1],argv[2]);
-
 	memset(&aux, 0, sizeof(ktp_aux_t));
 	memset(pes, 0, 4 * sizeof(mem_pestat_t));
 	for (i = 0; i < 4; ++i) pes[i].failed = 1;
@@ -409,6 +407,7 @@ int main_mem(int argc, char *argv[])
 
 	bwa_print_sam_hdr(aux.idx->bns, hdr_line);
 	aux.actual_chunk_size = fixed_chunk_size > 0? fixed_chunk_size : opt->chunk_size * opt->n_threads;
+	//printf("chunk size %d\n",aux.actual_chunk_size);
 	kt_pipeline(no_mt_io? 1 : 2, process, &aux, 3);
 	free(hdr_line);
 	free(opt);

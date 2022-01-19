@@ -101,7 +101,10 @@ bseq1_t *bseq_read(int chunk_size, int *n_, void *ks1_, void *ks2_)
 			seqs[n].id = n;
 			size += seqs[n++].l_seq;
 		}
-		if (size >= chunk_size && (n&1) == 0) break;
+		if (size >= chunk_size && (n&1) == 0) {
+			//printf("Size when break %d\n",size);
+			break;
+		}
 	}
 	if (size == 0) { // test if the 2nd file is finished
 		if (ks2 && kseq_read(ks2) >= 0)
