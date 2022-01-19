@@ -106,6 +106,14 @@ typedef struct {
 typedef struct { size_t n, m; mem_alnreg_t *a; } mem_alnreg_v;
 
 typedef struct {
+	int64_t rbeg;
+	int32_t qbeg, len;
+	int score;
+} mem_seed_t; // unaligned memory
+
+typedef struct { size_t n, m; mem_seed_t *a; int seed_counter; } mem_seed_v;
+
+typedef struct {
 	int low, high;   // lower and upper bounds within which a read pair is considered to be properly paired
 	int failed;      // non-zero if the orientation is not supported by sufficient data
 	double avg, std; // mean and stddev of the insert size distribution

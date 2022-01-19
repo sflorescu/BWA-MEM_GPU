@@ -51,7 +51,7 @@
 extern "C" {
 #endif
 
-int seed(int argc, char **argv, int u);
+mem_seed_v *seed_gpu(int argc, char **argv, int n_reads);
 
 #ifdef __cplusplus
 }
@@ -140,6 +140,23 @@ static smem_aux_t *smem_aux_init()
 	return a;
 }
 
+typedef struct {
+	const mem_opt_t *opt;
+	const bwt_t *bwt;
+	const bntseq_t *bns;
+	const uint8_t *pac;
+	const mem_pestat_t *pes;
+	smem_aux_t **aux;
+	bseq1_t *seqs;
+	mem_alnreg_v *regs;
+	mem_seed_v *gpu_results;
+	int64_t n_processed;
+	int argc;
+	int n_reads;
+	char **argv;
+} worker_t;
+
+
 static void smem_aux_destroy(smem_aux_t *a)
 {	
 	free(a->tmpv[0]->a); free(a->tmpv[0]);
@@ -154,6 +171,8 @@ static void mem_collect_intv(const mem_opt_t *opt, const bwt_t *bwt, int len, co
 	int start_width = 1;
 	//int split_len = (int)(opt->min_seed_len * opt->split_factor + .499);
 	a->mem.n = 0;
+
+	//printf("*** Seq: "); for (int j = 0; j < len; ++j) putchar("ACGTN"[(int)seq[j]]); putchar('\n');
 
 	while (x < len) {
 		if (seq[x] < 4) {
@@ -204,34 +223,37 @@ static void mem_collect_intv(const mem_opt_t *opt, const bwt_t *bwt, int len, co
 	for (int i = 0; i < a->mem.n; i++){
 		bwtintv_t *p = &a->mem.a[i];
 		int slen = (uint32_t)p->info - (p->info>>32); // seed length
-		//printf("Seed [%d]: Length %d (%ld, %llu, %llu)\n",i,slen,(long)p->x[0],p->x[1],p->x[2]);
-		printf("EM\t%d\t%d\t%ld\n", (uint32_t)(p->info>>32), (uint32_t)p->info, (long)p->x[2]);
+		printf("Seed [%d]: Length %d (%lu, x[2] %lu)\n",i,slen,(long)p->x[0],p->x[2]);
+		//printf("EM\t%d\t%d\t%ld\n", (uint32_t)(p->info>>32), (uint32_t)p->info, (long)p->x[2]);
 	}*/
 
 
 }
 
-static void mem_collect_intv_gpu(int argc, char **argv)
-{
-	int u = seed(argc, argv, 5);
 
-	/*printf("Size of seeds %ld \n",a->mem.n);
-	for (int i = 0; i < a->mem.n; i++){
-		bwtintv_t *p = &a->mem.a[i];
-		int slen = (uint32_t)p->info - (p->info>>32); // seed length
-		printf("Seed [%d]: Length %d (%ld,%ld,%ld)\n",i,slen,p->x[0],p->x[1],p->x[2]);
-	}*/
+void mem_print_gpu(mem_seed_v *data, int n_reads)
+{
+		for (int i = 0; i < n_reads; i++)
+		{
+			printf("=====> Printing SMEM(s) in read '%d' <=====\n", i+1);
+			for (int j = 0; j < data[i].seed_counter; j++)
+			{
+				printf("[GPUSeed Host] Read[%d, %d] -> %lu\n",data[i].a[j].qbeg,(data[i].a[j].qbeg)+(data[i].a[j].len),data[i].a[j].rbeg);
+			}
+		}
+}
+
+static void mem_collect_intv_gpu(void *data)
+{
+	worker_t *w = (worker_t*)data;
+	
+	w->gpu_results = seed_gpu(w->argc, w->argv, w->n_reads);
+	if (bwa_verbose >= 4) mem_print_gpu(w->gpu_results, w->n_reads);
 }
 
 /************
  * Chaining *
  ************/
-
-typedef struct {
-	int64_t rbeg;
-	int32_t qbeg, len;
-	int score;
-} mem_seed_t; // unaligned memory
 
 typedef struct {
 	int n, m, first, rid;
@@ -310,7 +332,7 @@ void mem_print_chain(const bntseq_t *bns, mem_chain_v *chn)
 	}
 }
 
-mem_chain_v mem_chain(const mem_opt_t *opt, const bwt_t *bwt, const bntseq_t *bns, int len, const uint8_t *seq, void *buf, int argc, char **argv)
+mem_chain_v mem_chain(const mem_opt_t *opt, const bwt_t *bwt, const bntseq_t *bns, int len, const uint8_t *seq, void *buf, int argc, char **argv, mem_seed_v *gpu_results, int read_id)
 {
 	int i, b, e, l_rep;
 	int64_t l_pac = bns->l_pac;
@@ -318,34 +340,39 @@ mem_chain_v mem_chain(const mem_opt_t *opt, const bwt_t *bwt, const bntseq_t *bn
 	kbtree_t(chn) *tree;
 	smem_aux_t *aux;
 
+	//printf("Value: %ld\n",gpu_results->a[0].rbeg);
+	//printf("Working on read: %d\n",read_id);
+
 	kv_init(chain);
 	if (len < opt->min_seed_len) return chain; // if the query is shorter than the seed length, no match
 	tree = kb_init(chn, KB_DEFAULT_SIZE);
-
-	aux = buf? (smem_aux_t*)buf : smem_aux_init();
-	mem_collect_intv(opt, bwt, len, seq, aux, argc, argv);
-	for (i = 0, b = e = l_rep = 0; i < aux->mem.n; ++i) { // compute frac_rep
-		bwtintv_t *p = &aux->mem.a[i];
-		int sb = (p->info>>32), se = (uint32_t)p->info;
-		if (p->x[2] <= opt->max_occ) continue;
+	bwtint_t x2 = 1;
+	//aux = buf? (smem_aux_t*)buf : smem_aux_init();
+	//mem_collect_intv(opt, bwt, len, seq, aux, argc, argv);
+	for (i = 0, b = e = l_rep = 0; i < gpu_results[read_id].seed_counter; ++i) { // compute frac_rep
+		//bwtintv_t *p = &aux->mem.a[i];
+		int sb = gpu_results[read_id].a[i].qbeg, se = gpu_results[read_id].a[i].qbeg + gpu_results[read_id].a[i].len;
+		//if (p->x[2] <= opt->max_occ) continue;
+		if (x2 <= opt->max_occ) continue;
 		if (sb > e) l_rep += e - b, b = sb, e = se;
 		else e = e > se? e : se;
 	}
 	l_rep += e - b;
 
-	for (i = 0; i < aux->mem.n; ++i) {
-		bwtintv_t *p = &aux->mem.a[i];
-		int step, count, slen = (uint32_t)p->info - (p->info>>32); // seed length
+	for (i = 0; i < gpu_results[read_id].seed_counter; ++i) {
+		//bwtintv_t *p = &aux->mem.a[i];
+		int step, count, slen = (uint32_t)gpu_results[read_id].a[i].len; // seed length
 		int64_t k;
 		// if (slen < opt->min_seed_len) continue; // ignore if too short or too repetitive
-		step = p->x[2] > opt->max_occ? p->x[2] / opt->max_occ : 1;
-		for (k = count = 0; k < p->x[2] && count < opt->max_occ; k += step, ++count) {
+		step = x2 > opt->max_occ? x2 / opt->max_occ : 1;
+		for (k = count = 0; k < x2 && count < opt->max_occ; k += step, ++count) {
 			mem_chain_t tmp, *lower, *upper;
 			mem_seed_t s;
 			int rid, to_add = 0;
-			s.rbeg = tmp.pos = bwt_sa(bwt, p->x[0] + k); // this is the base coordinate in the forward-reverse reference
+			//s.rbeg = tmp.pos = bwt_sa(bwt, p->x[0] + k); // this is the base coordinate in the forward-reverse reference
+			s.rbeg = tmp.pos = gpu_results[read_id].a[i].rbeg;
 			//printf("S.rbeq[%d]: %lu\n",i,s.rbeg);
-			s.qbeg = p->info>>32;
+			s.qbeg = gpu_results[read_id].a[i].qbeg;
 			s.score = s.len = slen;
 			rid = bns_intv2rid(bns, s.rbeg, s.rbeg + s.len);
 			if (rid < 0) continue; // bridging multiple reference sequences or the forward-reverse boundary; TODO: split the seed; don't discard it!!!
@@ -374,8 +401,8 @@ mem_chain_v mem_chain(const mem_opt_t *opt, const bwt_t *bwt, const bntseq_t *bn
 	for (i = 0; i < chain.n; ++i) chain.a[i].frac_rep = (float)l_rep / len;
 	if (bwa_verbose >= 4) printf("* fraction of repetitive seeds: %.3f\n", (float)l_rep / len);
 
-	/*printf("Number of chains %ld \n",chain.n);
-	for (int i = 0; i < chain.n; i++){
+	//printf("Number of chains %ld \n",chain.n);
+	/*for (int i = 0; i < chain.n; i++){
 		mem_chain_t *p = &chain.a[i];
 		//printf("Number of seeds in chain %d \n",p->n);
 		for (int j = 0; j < p->n; ++j){
@@ -1128,7 +1155,7 @@ void mem_reg2sam(const mem_opt_t *opt, const bntseq_t *bns, const uint8_t *pac, 
 	}
 }
 
-mem_alnreg_v mem_align1_core(const mem_opt_t *opt, const bwt_t *bwt, const bntseq_t *bns, const uint8_t *pac, int l_seq, char *seq, void *buf, int argc, char **argv)
+mem_alnreg_v mem_align1_core(const mem_opt_t *opt, const bwt_t *bwt, const bntseq_t *bns, const uint8_t *pac, int l_seq, char *seq, void *buf, int argc, char **argv, mem_seed_v *gpu_results, int read_id)
 {
 	int i;
 	mem_chain_v chn;
@@ -1139,7 +1166,7 @@ mem_alnreg_v mem_align1_core(const mem_opt_t *opt, const bwt_t *bwt, const bntse
 	for (i = 0; i < l_seq; ++i) // convert to 2-bit encoding if we have not done so
 		seq[i] = seq[i] < 4? seq[i] : nst_nt4_table[(int)seq[i]];
 
-	chn = mem_chain(opt, bwt, bns, l_seq, (uint8_t*)seq, buf, argc , argv);
+	chn = mem_chain(opt, bwt, bns, l_seq, (uint8_t*)seq, buf, argc , argv, gpu_results, read_id);
 	chn.n = mem_chain_flt(opt, chn.n, chn.a);
 	mem_flt_chained_seeds(opt, bns, pac, l_seq, (uint8_t*)seq, chn.n, chn.a);
 	if (bwa_verbose >= 4) mem_print_chain(bns, &chn);
@@ -1240,33 +1267,18 @@ mem_aln_t mem_reg2aln(const mem_opt_t *opt, const bntseq_t *bns, const uint8_t *
 	return a;
 }
 
-typedef struct {
-	const mem_opt_t *opt;
-	const bwt_t *bwt;
-	const bntseq_t *bns;
-	const uint8_t *pac;
-	const mem_pestat_t *pes;
-	smem_aux_t **aux;
-	bseq1_t *seqs;
-	mem_alnreg_v *regs;
-	int64_t n_processed;
-	int argc;
-	char **argv;
-} worker_t;
-
 static void worker1(void *data, int i, int tid)
 {
 	worker_t *w = (worker_t*)data;
 	if (!(w->opt->flag&MEM_F_PE)) {
 		if (bwa_verbose >= 4) printf("=====> Processing read '%s' <=====\n", w->seqs[i].name);
-		//mem_collect_intv_gpu(w->argc, w->argv);
 		//printf("=====> Working read '%s' <=====\n", w->seqs[i].name);
-		w->regs[i] = mem_align1_core(w->opt, w->bwt, w->bns, w->pac, w->seqs[i].l_seq, w->seqs[i].seq, w->aux[tid], w->argc, w->argv);
+		w->regs[i] = mem_align1_core(w->opt, w->bwt, w->bns, w->pac, w->seqs[i].l_seq, w->seqs[i].seq, w->aux[tid], w->argc, w->argv, w->gpu_results, i);
 	} else {
 		if (bwa_verbose >= 4) printf("=====> Processing read '%s'/1 <=====\n", w->seqs[i<<1|0].name);
-		w->regs[i<<1|0] = mem_align1_core(w->opt, w->bwt, w->bns, w->pac, w->seqs[i<<1|0].l_seq, w->seqs[i<<1|0].seq, w->aux[tid], w->argc, w->argv);
+		w->regs[i<<1|0] = mem_align1_core(w->opt, w->bwt, w->bns, w->pac, w->seqs[i<<1|0].l_seq, w->seqs[i<<1|0].seq, w->aux[tid], w->argc, w->argv, w->gpu_results, i);
 		if (bwa_verbose >= 4) printf("=====> Processing read '%s'/2 <=====\n", w->seqs[i<<1|1].name);
-		w->regs[i<<1|1] = mem_align1_core(w->opt, w->bwt, w->bns, w->pac, w->seqs[i<<1|1].l_seq, w->seqs[i<<1|1].seq, w->aux[tid], w->argc, w->argv);
+		w->regs[i<<1|1] = mem_align1_core(w->opt, w->bwt, w->bns, w->pac, w->seqs[i<<1|1].l_seq, w->seqs[i<<1|1].seq, w->aux[tid], w->argc, w->argv, w->gpu_results, i);
 	}
 }
 
@@ -1299,13 +1311,33 @@ void mem_process_seqs(const mem_opt_t *opt, const bwt_t *bwt, const bntseq_t *bn
 	ctime = cputime(); rtime = realtime();
 	global_bns = bns;
 	w.regs = malloc(n * sizeof(mem_alnreg_v));
+	
+	
+	w.gpu_results = calloc(n, sizeof(mem_seed_v));
+	if(w.gpu_results=NULL) exit(1);
+	
 	w.opt = opt; w.bwt = bwt; w.bns = bns; w.pac = pac;
 	w.seqs = seqs; w.n_processed = n_processed;
 	w.pes = &pes[0];
 	w.aux = malloc(opt->n_threads * sizeof(smem_aux_t));
 	w.argc = argc;
 	w.argv = argv;
-	//mem_collect_intv_gpu(argc, argv);
+	w.n_reads = n;
+
+    /*fprintf(stderr, "primary=%llu\n", bwt->primary);
+    fprintf(stderr, "seq_len=%llu\n", bwt->seq_len);
+    fprintf(stderr, "L2[0]=%llu\n", bwt->L2[0]);
+    fprintf(stderr, "L2[1]=%llu\n", bwt->L2[1]);
+    fprintf(stderr, "L2[2]=%llu\n", bwt->L2[2]);
+    fprintf(stderr, "L2[3]=%llu\n", bwt->L2[3]);
+    fprintf(stderr, "L2[4]=%llu\n", bwt->L2[4]);*/
+
+	printf("Number of reads to process %d\n", n);
+
+	mem_collect_intv_gpu(&w);
+
+	//printf("Size of results from gpu %ld\n",w.gpu_results->n);
+	
 	for (i = 0; i < opt->n_threads; ++i)
 		w.aux[i] = smem_aux_init();
 	kt_for(opt->n_threads, worker1, &w, (opt->flag&MEM_F_PE)? n>>1 : n); // find mapping positions
@@ -1318,6 +1350,7 @@ void mem_process_seqs(const mem_opt_t *opt, const bwt_t *bwt, const bntseq_t *bn
 	}
 	kt_for(opt->n_threads, worker2, &w, (opt->flag&MEM_F_PE)? n>>1 : n); // generate alignment
 	free(w.regs);
+	free(w.gpu_results);
 	if (bwa_verbose >= 3)
 		fprintf(stderr, "[M::%s] Processed %d reads in %.3f CPU sec, %.3f real sec\n", __func__, n, cputime() - ctime, realtime() - rtime);
 }

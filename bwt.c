@@ -454,7 +454,7 @@ bwt_t *bwt_restore_bwt(const char *fn)
 	bwt->bwt = (uint32_t*)calloc(bwt->bwt_size, 4);
 	err_fseek(fp, 0, SEEK_SET);
 	err_fread_noeof(&bwt->primary, sizeof(bwtint_t), 1, fp);
-	//printf("BWT primary %d\n",bwt->primary);
+	printf("BWT primary %ld\n",bwt->primary);
 	err_fread_noeof(bwt->L2+1, sizeof(bwtint_t), 4, fp);
 	fread_fix(fp, bwt->bwt_size<<2, bwt->bwt);
 	bwt->seq_len = bwt->L2[4];

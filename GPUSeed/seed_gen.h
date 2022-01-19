@@ -5,6 +5,7 @@
 #include <vector_types.h>
 #include <cuda_runtime.h>
 #include <stdbool.h>
+#include "../bwamem.h"
 
 typedef uint32_t bwtint_t_gpu;
 
@@ -19,6 +20,7 @@ typedef struct {
 	bwtint_t_gpu *sa;
 } bwt_t_gpu;
 
+/*
 double realtime_gpu();
 inline void gpuAssert(cudaError_t code, const char *file, int line);
 __device__ inline uint pop_count_partial(uint32_t word, uint8_t c, uint32_t mask_bits);
@@ -51,13 +53,13 @@ bwt_t_gpu *bwt_restore_bwt_gpu(const char *fn);
 void bwt_destroy_gpu(bwt_t_gpu *bwt);
 void  print_seq_ascii(int length, char *seq);
 void  print_seq_dna(int length, uint8_t* seq);
-void  print_seq_packed(int length, uint32_t* seq, int start, int fow);
+void  print_seq_packed(int length, uint32_t* seq, int start, int fow);*/
 
 #ifdef __cplusplus
 extern "C" {
 #endif
 
-int seed(int argc, char **argv, int u);
+mem_seed_v *seed_gpu(int argc, char **argv, int n_reads);
 
 #ifdef __cplusplus
 }
