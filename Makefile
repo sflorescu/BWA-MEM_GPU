@@ -2,7 +2,7 @@ CC=			gcc
 CXX = 		nvcc
 OBJ_DIR=	./obj/
 LIB_DIR=	./lib/
-NVCCFLAGS=		-g --std=c++11
+NVCCFLAGS=		-g -O3 -std=c++11 -lineinfo -Xcompiler -Wall -Xptxas  -Werror -rdc=true --gpu-architecture=compute_61 --gpu-code=sm_61 --ptxas-options=-v --gpu-architecture=compute_61 --gpu-code=sm_61
 WRAP_MALLOC=-DUSE_MALLOC_WRAPPERS
 CUDA_LIB_DIR=/home/stef/cuda/lib64/
 GPUSEED_LIB_DIR = ./GPUSeed/libs/

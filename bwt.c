@@ -430,8 +430,8 @@ void bwt_restore_sa(const char *fn, bwt_t *bwt)
 	err_fread_noeof(skipped, sizeof(bwtint_t), 4, fp); // skip
 	err_fread_noeof(&bwt->sa_intv, sizeof(bwtint_t), 1, fp);
 	err_fread_noeof(&primary, sizeof(bwtint_t), 1, fp);
-	printf("file: %s\n",fn);
-	printf("Primary:%d seq_len:%d\n",primary,bwt->seq_len);
+	//printf("file: %s\n",fn);
+	printf("[CPU] Primary:%ld seq_len:%ld\n",primary,bwt->seq_len);
 	xassert(primary == bwt->seq_len, "SA-BWT inconsistency: seq_len is not the same.");
 
 	bwt->n_sa = (bwt->seq_len + bwt->sa_intv) / bwt->sa_intv;
@@ -454,7 +454,7 @@ bwt_t *bwt_restore_bwt(const char *fn)
 	bwt->bwt = (uint32_t*)calloc(bwt->bwt_size, 4);
 	err_fseek(fp, 0, SEEK_SET);
 	err_fread_noeof(&bwt->primary, sizeof(bwtint_t), 1, fp);
-	printf("BWT primary %d\n",bwt->primary);
+	//printf("BWT primary %d\n",bwt->primary);
 	err_fread_noeof(bwt->L2+1, sizeof(bwtint_t), 4, fp);
 	fread_fix(fp, bwt->bwt_size<<2, bwt->bwt);
 	bwt->seq_len = bwt->L2[4];

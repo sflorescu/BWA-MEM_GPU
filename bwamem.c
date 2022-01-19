@@ -166,9 +166,7 @@ static void mem_collect_intv(const mem_opt_t *opt, const bwt_t *bwt, int len, co
 			}
 		} else ++x;
 	}
-
-	int u = seed(argc, argv, 5);
-	printf("I go back mem_collect %d\n",u);
+	//printf("I go back mem_collect %d\n",u);
 
 	// second pass: find MEMs inside a long SMEM
 	/*old_n = a->mem.n;
@@ -202,14 +200,27 @@ static void mem_collect_intv(const mem_opt_t *opt, const bwt_t *bwt, int len, co
 	// sort
 	ks_introsort(mem_intv, a->mem.n, a->mem.a);
 
+	/*printf("Number of seeds %ld \n",a->mem.n);
+	for (int i = 0; i < a->mem.n; i++){
+		bwtintv_t *p = &a->mem.a[i];
+		int slen = (uint32_t)p->info - (p->info>>32); // seed length
+		//printf("Seed [%d]: Length %d (%ld, %llu, %llu)\n",i,slen,(long)p->x[0],p->x[1],p->x[2]);
+		printf("EM\t%d\t%d\t%ld\n", (uint32_t)(p->info>>32), (uint32_t)p->info, (long)p->x[2]);
+	}*/
+
+
+}
+
+static void mem_collect_intv_gpu(int argc, char **argv)
+{
+	int u = seed(argc, argv, 5);
+
 	/*printf("Size of seeds %ld \n",a->mem.n);
 	for (int i = 0; i < a->mem.n; i++){
 		bwtintv_t *p = &a->mem.a[i];
 		int slen = (uint32_t)p->info - (p->info>>32); // seed length
 		printf("Seed [%d]: Length %d (%ld,%ld,%ld)\n",i,slen,p->x[0],p->x[1],p->x[2]);
 	}*/
-
-
 }
 
 /************
@@ -333,8 +344,9 @@ mem_chain_v mem_chain(const mem_opt_t *opt, const bwt_t *bwt, const bntseq_t *bn
 			mem_seed_t s;
 			int rid, to_add = 0;
 			s.rbeg = tmp.pos = bwt_sa(bwt, p->x[0] + k); // this is the base coordinate in the forward-reverse reference
+			//printf("S.rbeq[%d]: %lu\n",i,s.rbeg);
 			s.qbeg = p->info>>32;
-			s.score= s.len = slen;
+			s.score = s.len = slen;
 			rid = bns_intv2rid(bns, s.rbeg, s.rbeg + s.len);
 			if (rid < 0) continue; // bridging multiple reference sequences or the forward-reverse boundary; TODO: split the seed; don't discard it!!!
 			if (kb_size(tree)) {
@@ -362,18 +374,18 @@ mem_chain_v mem_chain(const mem_opt_t *opt, const bwt_t *bwt, const bntseq_t *bn
 	for (i = 0; i < chain.n; ++i) chain.a[i].frac_rep = (float)l_rep / len;
 	if (bwa_verbose >= 4) printf("* fraction of repetitive seeds: %.3f\n", (float)l_rep / len);
 
-	printf("Number of chains %ld \n",chain.n);
+	/*printf("Number of chains %ld \n",chain.n);
 	for (int i = 0; i < chain.n; i++){
 		mem_chain_t *p = &chain.a[i];
-		printf("Number of seeds in chain %d \n",p->n);
+		//printf("Number of seeds in chain %d \n",p->n);
 		for (int j = 0; j < p->n; ++j){
 			mem_seed_t *s = &p->seeds[j];
-         	printf("Seed[%d, %d] -> %ld\n",s->qbeg,s->qbeg+s->len,s->rbeg);
+         	printf("[BWA-MEM] Read[%d, %d] -> %ld\n",s->qbeg,(s->qbeg)+(s->len),s->rbeg);
 		}
 		
 		//int slen = (uint32_t)p->info - (p->info>>32); // seed length
 		//
-	}
+	}*/
 
 	kb_destroy(chn, tree);
 	return chain;
@@ -1247,6 +1259,8 @@ static void worker1(void *data, int i, int tid)
 	worker_t *w = (worker_t*)data;
 	if (!(w->opt->flag&MEM_F_PE)) {
 		if (bwa_verbose >= 4) printf("=====> Processing read '%s' <=====\n", w->seqs[i].name);
+		//mem_collect_intv_gpu(w->argc, w->argv);
+		//printf("=====> Working read '%s' <=====\n", w->seqs[i].name);
 		w->regs[i] = mem_align1_core(w->opt, w->bwt, w->bns, w->pac, w->seqs[i].l_seq, w->seqs[i].seq, w->aux[tid], w->argc, w->argv);
 	} else {
 		if (bwa_verbose >= 4) printf("=====> Processing read '%s'/1 <=====\n", w->seqs[i<<1|0].name);
@@ -1291,6 +1305,7 @@ void mem_process_seqs(const mem_opt_t *opt, const bwt_t *bwt, const bntseq_t *bn
 	w.aux = malloc(opt->n_threads * sizeof(smem_aux_t));
 	w.argc = argc;
 	w.argv = argv;
+	//mem_collect_intv_gpu(argc, argv);
 	for (i = 0; i < opt->n_threads; ++i)
 		w.aux[i] = smem_aux_init();
 	kt_for(opt->n_threads, worker1, &w, (opt->flag&MEM_F_PE)? n>>1 : n); // find mapping positions

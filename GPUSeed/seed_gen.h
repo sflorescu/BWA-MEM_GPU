@@ -3,16 +3,10 @@
 
 
 #include <vector_types.h>
+#include <cuda_runtime.h>
+#include <stdbool.h>
 
-typedef uint64_t bwtint_t_gpu;
-
-//#define OCC_INTERVAL 0x100
-
-//#define OCC_INTERVAL 0x80
-
-#define OCC_INTERVAL 0x40
-
-//#define OCC_INTERVAL 0x20
+typedef uint32_t bwtint_t_gpu;
 
 typedef struct {
 	bwtint_t_gpu primary; // S^{-1}(0), or the primary index of BWT
@@ -25,31 +19,8 @@ typedef struct {
 	bwtint_t_gpu *sa;
 } bwt_t_gpu;
 
-/*
-typedef struct {
-	bwtint_t primary; // S^{-1}(0), or the primary index of BWT
-	bwtint_t L2[5]; // C(), cumulative count
-	bwtint_t seq_len; // sequence length
-	bwtint_t bwt_size; // size of bwt, about seq_len/4
-	uint32_t *bwt; // BWT
-	// occurance array, separated to two parts
-	uint32_t cnt_table[256];
-	// suffix array
-	int sa_intv;
-	bwtint_t n_sa;
-	bwtint_t *sa;
-} bwt_t;*/
-
-#define bwt_bwt1(b, k) ((b).bwt[(k)/OCC_INTERVAL*((OCC_INTERVAL>>4) + 4) + 4])
-
-#define bwt_bwt(b, k) ((b).bwt[(k)/OCC_INTERVAL*((OCC_INTERVAL>>4) + 4) + 4 + (k)%OCC_INTERVAL/16])
-
-#define bwt_B0(b, k) (bwt_bwt(b, k)>>((~(k)&0xf)<<1)&3)
-
-#define bwt_occ_intv(b, k) ((b).bwt + (k)/OCC_INTERVAL*((OCC_INTERVAL>>4) + 4))
-
-
-double realtime();
+double realtime_gpu();
+inline void gpuAssert(cudaError_t code, const char *file, int line);
 __device__ inline uint pop_count_partial(uint32_t word, uint8_t c, uint32_t mask_bits);
 __device__ inline uint pop_count_full(uint32_t word, uint8_t c);
 __device__ inline bwtint_t_gpu bwt_occ_gpu(const bwt_t_gpu bwt, bwtint_t_gpu k, uint8_t c);
