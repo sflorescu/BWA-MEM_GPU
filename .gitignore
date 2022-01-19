@@ -1,0 +1,15 @@
+bwa
+*.o
+*.txt
+*.fq
+*.fq.*
+*.fasta
+*.fasta.*
+*.fa
+*.fa.*
+*.sam
+lib/*
+obj/*
+GPUSeed/include/*
+GPUSeed/libs/*
+GPUSeed/objs/*
