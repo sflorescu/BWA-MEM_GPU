@@ -30,6 +30,7 @@
 #include "bwt.h"
 #include "bntseq.h"
 #include "bwa.h"
+#include "./GPUSeed/seed_gen.h"
 
 #define MEM_MAPQ_COEF 30.0
 #define MEM_MAPQ_MAX  60
@@ -104,14 +105,6 @@ typedef struct {
 } mem_alnreg_t;
 
 typedef struct { size_t n, m; mem_alnreg_t *a; } mem_alnreg_v;
-
-typedef struct {
-	int64_t rbeg;
-	int32_t qbeg, len;
-	int score;
-} mem_seed_t; // unaligned memory
-
-typedef struct { size_t n, m; mem_seed_t *a; int seed_counter; } mem_seed_v;
 
 typedef struct {
 	int low, high;   // lower and upper bounds within which a read pair is considered to be properly paired

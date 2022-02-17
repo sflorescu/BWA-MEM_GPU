@@ -1,11 +1,7 @@
 #ifndef __SEED_GEN_H__
 #define __SEED_GEN_H__
 
-
-#include <vector_types.h>
-#include <cuda_runtime.h>
 #include <stdbool.h>
-#include "../bwamem.h"
 
 typedef uint32_t bwtint_t_gpu;
 
@@ -19,6 +15,14 @@ typedef struct {
 	bwtint_t_gpu n_sa;
 	bwtint_t_gpu *sa;
 } bwt_t_gpu;
+
+typedef struct {
+	int64_t rbeg;
+	int32_t qbeg, len;
+	int score;
+} mem_seed_t; // unaligned memory
+
+typedef struct { size_t n, m; mem_seed_t *a; int seed_counter; } mem_seed_v;
 
 #ifdef __cplusplus
 extern "C" {

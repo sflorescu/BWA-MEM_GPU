@@ -1,6 +1,7 @@
 bwa
 *.o
 *.txt
+*.log
 *.fq
 *.fq.*
 *.fasta

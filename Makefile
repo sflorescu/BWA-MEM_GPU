@@ -1,12 +1,13 @@
 CC=			gcc
-CXX = 		nvcc
+CXX = 		g++
 OBJ_DIR=	./obj/
 LIB_DIR=	./lib/
-NVCCFLAGS=		-g -O3 -std=c++11 -lineinfo -Xcompiler -Wall -Xptxas  -Werror -rdc=true --gpu-architecture=compute_61 --gpu-code=sm_61 --ptxas-options=-v
+#NVCCFLAGS=	-g -O3 -std=c++11 -lineinfo -Xcompiler -Wall -Xptxas  -Werror --gpu-architecture=compute_61 --gpu-code=sm_61 --ptxas-options=-v
+NVCCFLAGS= -g -Wall -Wno-unused-function -O2 -std=c++11 -fpermissive
 CUDA_LIB_DIR=/home/stef/cuda/lib64/
 GPUSEED_LIB_DIR = ./GPUSeed/libs/
 GPUSEED_OBJ_DIR = ./GPUSeed/obj/
-GPUSEED_INCLUDE_DIR= ./GPUSeed/cub/cub
+GPUSEED_INCLUDE_DIR= ./GPUSeed/include/
 AR=			ar
 DFLAGS=		-DHAVE_PTHREAD $(WRAP_MALLOC)
 LOBJS=		utils.o kthread.o kstring.o ksw.o bwt.o bntseq.o bwa.o bwamem.o bwamem_pair.o bwamem_extra.o malloc_wrap.o \
@@ -18,8 +19,8 @@ AOBJS=		bwashm.o bwase.o bwaseqio.o bwtgap.o bwtaln.o bamlite.o \
 LOBJS_PATH=$(addprefix $(OBJ_DIR),$(LOBJS))
 AOBJS_PATH=$(addprefix $(OBJ_DIR),$(AOBJS))
 PROG=		bwa
-INCLUDES=	
-LIBS=		-lm -lz -lpthread -lcuda -lcudart
+INCLUDES=	-I$(GPUSEED_INCLUDE_DIR) 
+LIBS=		-lm -lz -lpthread -lcudart -lcudadevrt
 SUBDIRS=	.
 
 ifeq ($(shell uname -s),Linux)
@@ -40,8 +41,8 @@ makedir:
 	@mkdir -p $(LIB_DIR)
 	@echo "If you donot see anything below this line then there is nothing to \"make\""
 
-bwa:libbwa.a libseed.a $(AOBJS) main.o
-		$(CXX) $(NVCCFLAGS) $(DFLAGS) $(AOBJS_PATH) $(OBJ_DIR)main.o -o $@ -L$(LIB_DIR) -L$(CUDA_LIB_DIR) -L$(GPUSEED_LIB_DIR) -lbwa -lseed  $(LIBS)
+bwa:libbwa.a libseed.a $(AOBJS) main.o 
+		$(CXX) $(NVCCFLAGS) $(DFLAGS) $(GPUSEED_LIB_DIR)libseed.a $(GPUSEED_OBJ_DIR)dlink.o $(AOBJS_PATH) $(OBJ_DIR)main.o -o $@ -L$(LIB_DIR) -L$(CUDA_LIB_DIR) -L$(GPUSEED_LIB_DIR) -lbwa -lseed  $(LIBS)
 
 libbwa.a:$(LOBJS)
 		echo "ARCHIVING: libbwa.a"
@@ -53,7 +54,7 @@ libseed.a:
 clean:
 		rm -f -r gmon.out $(OBJ_DIR) a.out $(PROG) *~ $(LIB_DIR)
 		rm -f gmon.#out *.o a.out $(PROG) *~ *.a
-		rm -rf $(GPUSEED_LIB_DIR) $(GPUSEED_OBJ_DIR)
+		rm -rf $(GPUSEED_LIB_DIR) $(GPUSEED_OBJ_DIR) $(GPUSEED_INCLUDE_DIR)
 
 depend:
 	( LC_ALL=C ; export LC_ALL; cd src; makedepend -Y -- $(NVCCFLAGS) $(DFLAGS) -- -f ../Makefile  *.c *.cpp )

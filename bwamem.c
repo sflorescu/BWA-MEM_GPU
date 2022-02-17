@@ -41,7 +41,6 @@
 #include "kvec.h"
 #include "ksort.h"
 #include "utils.h"
-#include "./GPUSeed/seed_gen.h"
 
 #ifdef USE_MALLOC_WRAPPERS
 #  include "malloc_wrap.h"
