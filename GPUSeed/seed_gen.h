@@ -28,7 +28,7 @@ typedef struct { size_t n, m; mem_seed_t *a; int seed_counter; } mem_seed_v;
 extern "C" {
 #endif
 
-mem_seed_v *seed_gpu(int argc, char **argv, int n_reads);
+mem_seed_v *seed_gpu(int argc, char **argv, int n_reads, int64_t n_processed);
 
 #ifdef __cplusplus
 }

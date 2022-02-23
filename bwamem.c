@@ -50,7 +50,7 @@
 extern "C" {
 #endif
 
-mem_seed_v *seed_gpu(int argc, char **argv, int n_reads);
+mem_seed_v *seed_gpu(int argc, char **argv, int n_reads, int64_t n_processed);
 
 #ifdef __cplusplus
 }
@@ -245,7 +245,7 @@ static void mem_collect_intv_gpu(void *data)
 {
 	worker_t *w = (worker_t*)data;
 	//printf("=====> Calling GPUSeed \n");
-	w->gpu_results = seed_gpu(w->argc, w->argv, w->n_reads);
+	w->gpu_results = seed_gpu(w->argc, w->argv, w->n_reads, w->n_processed);
 	//printf("=====> BAck from Calling GPUSeed \n");
 	if (bwa_verbose >= 4) mem_print_gpu(w->gpu_results, w->n_reads);
 }

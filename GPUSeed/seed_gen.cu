@@ -25,17 +25,6 @@ double realtime_gpu()
 __constant__ bwtint_t_gpu L2_gpu[5];
 __constant__ uint32_t ascii_to_dna_table[8];
 
-/*typedef struct {
-	bwtint_t_gpu primary; // S^{-1}(0), or the primary index of BWT
-	bwtint_t_gpu *L2;
-	bwtint_t_gpu seq_len; // sequence length
-	bwtint_t_gpu bwt_size; // size of bwt, about seq_len/4
-	uint32_t *bwt; // BWT
-	int sa_intv;
-	bwtint_t_gpu n_sa;
-	bwtint_t_gpu *sa;
-} bwt_t_gpu;*/
-
 /* retrieve a character from the $-removed BWT string. Note that
  * bwt_t_gpu::bwt is not exactly the BWT string and therefore this macro is
  * called bwt_B0 instead of bwt_B */
@@ -1089,9 +1078,9 @@ unsigned char seq_nt4_table[256] = {
 extern "C" {
 #endif
 
-mem_seed_v *seed_gpu(int argc, char **argv, int n_reads) {
+mem_seed_v *seed_gpu(int argc, char **argv, int n_reads, int64_t n_processed) {
 
-	//printf("I go to seed %d\n",u);
+	//printf("I go to seed with n_reads: %d and Processed: %ld\n",n_reads, n_processed);
 	//printf("*** [GPU Wrapper] Seq: "); for (int j = 0; j < len; ++j) putchar("ACGTN"[(int)seq[j]]); putchar('\n');
 
     double total_time = realtime_gpu();
@@ -1187,6 +1176,8 @@ mem_seed_v *seed_gpu(int argc, char **argv, int n_reads) {
 	double total_find_seed_intervals_time =0.0, total_filter_seed_intervals_time =0.0, total_locate_seeds_time=0.0;
 	int reads_processed = 0;
 	int max_read_size = 0;
+	int read_count = 0;
+	int start_read = 0;
 	while (!all_done) {
 		int total_reads = 0;
 		int total_bytes = 0;
@@ -1204,8 +1195,18 @@ mem_seed_v *seed_gpu(int argc, char **argv, int n_reads) {
 				all_done = 1;
 				break;
 			}
-
-			if (line[0] != '>') {
+			if (line[0] == '>' && n_processed == 0 && !start_read) {
+				start_read = 1;
+				//printf("I start at total_reads: %d\n",read_count);
+			}
+			if (line[0] == '>' && !start_read){
+				read_count++;
+				if(read_count == n_processed + 1) {
+					start_read = 1;
+					//printf("I start at total_reads: %d\n",read_count);
+				}
+			}
+			if (line[0] != '>' && start_read) {
 				//memcpy(all_reads_fill_ptr, line, n_bases);
 				memcpy(read_batch_fill_ptr, line, n_bases-1);
 				total_bytes = total_bytes + n_bases;
@@ -1226,9 +1227,10 @@ mem_seed_v *seed_gpu(int argc, char **argv, int n_reads) {
 		int n_bits_max_read_size = (int)ceil(log2((double)max_read_size));
 		total_batch_load_time += (realtime_gpu() - loading_time);
 		
-		if (print_stats)
+		if (print_stats) {
 			fprintf(stderr,"A batch of %d reads loaded from file in %.3f seconds\n", total_reads, realtime_gpu() - loading_time);
-
+			fprintf(stderr,"All done %d\n", all_done);
+		}
 		int read_batch_size_8 = read_batch_size%8 ? read_batch_size + (8 - read_batch_size%8) : read_batch_size;
 //		int all_reads_ptr = 0;
 		uint8_t *read_batch_gpu;
@@ -1603,6 +1605,7 @@ mem_seed_v *seed_gpu(int argc, char **argv, int n_reads) {
 		uint32_t seed_pos;
 		for (i = 0, j = 0, k = reads_processed; i < total_reads; i++, k++) {
 			//printf("(%d) Seeds: (%d)\n",k, counter[i]);
+			if (k == n_reads) break;
 			//int counter_seeds = 0;
 			gpu_results[k].a = (mem_seed_t*)malloc(counter[i]*sizeof(mem_seed_t));
 			if(gpu_results[k].a == NULL) exit(1);
@@ -1641,6 +1644,7 @@ mem_seed_v *seed_gpu(int argc, char **argv, int n_reads) {
 		}
 
 		reads_processed = reads_processed + total_reads;
+		if (reads_processed >= n_reads) all_done = 1;
 		//printf("Reads processed: %d\n",reads_processed);
 		cudaFree(read_batch_gpu); cudaFree(read_sizes_gpu); cudaFree(read_offsets_gpu);
 		//cudaFree(seed_intervals_fow_rev_gpu);
@@ -1680,7 +1684,6 @@ mem_seed_v *seed_gpu(int argc, char **argv, int n_reads) {
 	double mem_time3 = realtime_gpu();
 	cudaFree(pre_calc_seed_intervals);
 	
-	
 	cudaFree(bwt_gpu.bwt);
 	cudaFree(bwt_gpu.sa);
 	bwt_destroy_gpu(bwt);
@@ -1701,7 +1704,6 @@ mem_seed_v *seed_gpu(int argc, char **argv, int n_reads) {
 		fprintf(stderr, "Total time spent in printing the results is %.3f seconds\n", total_print_time);
 		fprintf(stderr, "Total time: %.3f seconds\n", realtime_gpu() - total_time);
 	}
-
 	return gpu_results;
 }
 

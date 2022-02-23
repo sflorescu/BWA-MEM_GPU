@@ -42,7 +42,7 @@ makedir:
 	@echo "If you donot see anything below this line then there is nothing to \"make\""
 
 bwa:libbwa.a libseed.a $(AOBJS) main.o 
-		$(CXX) $(NVCCFLAGS) $(DFLAGS) $(GPUSEED_LIB_DIR)libseed.a $(GPUSEED_OBJ_DIR)dlink.o $(AOBJS_PATH) $(OBJ_DIR)main.o -o $@ -L$(LIB_DIR) -L$(CUDA_LIB_DIR) -L$(GPUSEED_LIB_DIR) -lbwa -lseed  $(LIBS)
+		$(CXX) $(NVCCFLAGS) $(DFLAGS) $(GPUSEED_OBJ_DIR)dlink.o $(AOBJS_PATH) $(OBJ_DIR)main.o -o $@ -L$(LIB_DIR) -L$(CUDA_LIB_DIR) -L$(GPUSEED_LIB_DIR) -lbwa -lseed  $(LIBS)
 
 libbwa.a:$(LOBJS)
 		echo "ARCHIVING: libbwa.a"
