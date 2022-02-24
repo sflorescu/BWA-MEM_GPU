@@ -4,7 +4,7 @@ OBJ_DIR=	./obj/
 LIB_DIR=	./lib/
 #NVCCFLAGS=	-g -O3 -std=c++11 -lineinfo -Xcompiler -Wall -Xptxas  -Werror --gpu-architecture=compute_61 --gpu-code=sm_61 --ptxas-options=-v
 NVCCFLAGS= -g -Wall -Wno-unused-function -O2 -std=c++11 -fpermissive
-CUDA_LIB_DIR=/home/stef/cuda/lib64/
+CUDA_LIB_DIR=/usr/local/cuda-11.0/lib64/
 GPUSEED_LIB_DIR = ./GPUSeed/libs/
 GPUSEED_OBJ_DIR = ./GPUSeed/obj/
 GPUSEED_INCLUDE_DIR= ./GPUSeed/include/
