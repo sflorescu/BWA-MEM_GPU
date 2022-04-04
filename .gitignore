@@ -1,5 +1,11 @@
-bwa
+bwa-gasal2
 *.o
+*.cuo
+*.cppo
+*.out
+*.txt
+*.tsv
+*.a
 *.txt
 *.log
 *.fq
@@ -11,6 +17,7 @@ bwa
 *.sam
 lib/*
 obj/*
-GPUSeed/include/*
-GPUSeed/libs/*
-GPUSeed/objs/*
+include/*
+src/GPUSeed/include/*
+src/GPUSeed/libs/*
+src/GPUSeed/objs/*
