@@ -12,6 +12,7 @@
 #include "utils.h"
 #include "bntseq.h"
 #include "kseq.h"
+#include "./GPUSeed/seed_gen.h"
 
 // J.L. 2019-01-13 - select GPU when using more than one. Use the first available (0) by default.
 #define NB_STREAMS (2)
@@ -31,8 +32,8 @@ typedef struct {
 	int64_t n_processed;
 	int copy_comment, actual_chunk_size;
 	bwaidx_t *idx;
-	int  argc;
-	char **argv;
+	char *read_file;
+	bwt_t_gpu *bwt;
 } ktp_aux_t;
 
 typedef struct {
@@ -76,18 +77,18 @@ static void *process(void *shared, int step, void *_data)
 				fprintf(stderr, "[M::%s] %d single-end sequences; %d paired-end sequences\n", __func__, n_sep[0], n_sep[1]);
 			if (n_sep[0]) {
 				tmp_opt.flag &= ~MEM_F_PE;
-				mem_process_seqs(&tmp_opt, idx->bwt, idx->bns, idx->pac, aux->n_processed, n_sep[0], sep[0], 0, aux->argc, aux->argv);
+				mem_process_seqs(&tmp_opt, idx->bwt, idx->bns, idx->pac, aux->n_processed, n_sep[0], sep[0], 0, aux->read_file, aux->bwt);
 				for (i = 0; i < n_sep[0]; ++i)
 					data->seqs[sep[0][i].id].sam = sep[0][i].sam;
 			}
 			if (n_sep[1]) {
 				tmp_opt.flag |= MEM_F_PE;
-				mem_process_seqs(&tmp_opt, idx->bwt, idx->bns, idx->pac, aux->n_processed + n_sep[0], n_sep[1], sep[1], aux->pes0, aux->argc, aux->argv);
+				mem_process_seqs(&tmp_opt, idx->bwt, idx->bns, idx->pac, aux->n_processed + n_sep[0], n_sep[1], sep[1], aux->pes0, aux->read_file, aux->bwt);
 				for (i = 0; i < n_sep[1]; ++i)
 					data->seqs[sep[1][i].id].sam = sep[1][i].sam;
 			}
 			free(sep[0]); free(sep[1]);
-		} else mem_process_seqs(opt, idx->bwt, idx->bns, idx->pac, aux->n_processed, data->n_seqs, data->seqs, aux->pes0, aux->argc, aux->argv);
+		} else mem_process_seqs(opt, idx->bwt, idx->bns, idx->pac, aux->n_processed, data->n_seqs, data->seqs, aux->pes0, aux->read_file, aux->bwt);
 		aux->n_processed += data->n_seqs;
 		return data;
 	} else if (step == 2) {
@@ -466,8 +467,16 @@ int gase_aln(int argc, char *argv[])
 	//There is no new line at the end so more values may be printed on the same line, if desired.
 	 fprintf(f_exec_time_metadata,"%d\t%d\t%d\t%d\t%d\t%d\t",opt->n_threads, opt->read_len, opt->seed_type, opt->min_seed_len, opt->seed_intv, opt->dp_type);
 
-	aux.argc = argc;
-	aux.argv = argv;
+	aux.read_file = argv[optind + 1];
+	char *prefix = argv[6];
+	char *str = (char*)calloc(strlen(prefix) + 10, 1);
+	strcpy(str, prefix); strcat(str, ".gpu.bwt");
+	aux.bwt= bwt_restore_bwt_gpu(str);
+	free(str);
+	str = (char*)calloc(strlen(prefix) + 10, 1);
+	strcpy(str, prefix); strcat(str, ".gpu.sa");
+	bwt_restore_sa_gpu(str, aux.bwt);
+	free(str);
 
 	bwa_print_sam_hdr(aux.idx->bns, hdr_line);
 	aux.actual_chunk_size = fixed_chunk_size > 0? fixed_chunk_size : opt->chunk_size * opt->n_threads;
@@ -483,6 +492,7 @@ int gase_aln(int argc, char *argv[])
 	extension_time[0].gpu_mem_free += (realtime() - time_extend);
 	free(hdr_line);
 	free(opt);
+	bwt_destroy_gpu(aux.bwt);
 	bwa_idx_destroy(aux.idx);
 	kseq_destroy(aux.ks);
 	err_gzclose(fp); kclose(ko);

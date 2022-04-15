@@ -28,7 +28,10 @@ typedef struct { size_t n, m; mem_seed_t *a; int seed_counter; } mem_seed_v;
 extern "C" {
 #endif
 
-mem_seed_v *seed_gpu(int argc, char **argv, int n_reads, int64_t n_processed);
+void bwt_destroy_gpu(bwt_t_gpu *bwt);
+void bwt_restore_sa_gpu(const char *fn, bwt_t_gpu *bwt);
+bwt_t_gpu *bwt_restore_bwt_gpu(const char *fn);
+mem_seed_v *seed_gpu(const char *read_file_name, int n_reads, int64_t n_processed, bwt_t_gpu *bwt);
 
 #ifdef __cplusplus
 }

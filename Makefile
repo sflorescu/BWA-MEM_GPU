@@ -37,7 +37,7 @@ AOBJS_PATH=$(addprefix $(OBJ_DIR),$(AOBJS))
 PROG=bwa-gasal2
 INCLUDES= -I$(GASAL_INCLUDE_DIR)
 INCLUDES2= -I$(GPUSEED_INCLUDE_DIR)  
-LIBS=-lm -lz -lpthread -lcudart -lcudadevrt
+LIBS=-lm -lz -lpthread -lcudart -lcudadevrt -lnvToolsExt
 SUBDIRS=.
 
 
@@ -47,7 +47,7 @@ endif
 
 #.SUFFIXES:.c .o .cc .cpp .cu
 %.o: %.c
-	$(CXX) -c $(CFLAGS) $(DFLAGS) $(INCLUDES) $(INCLUDES2) $< -o $(OBJ_DIR)$@
+	$(CXX) -c $(CFLAGS) $(DFLAGS) $(INCLUDES) $(INCLUDES2) -lnvToolsExt $< -o $(OBJ_DIR)$@
 %.o: %.cpp
 	$(CXX) -c $(CFLAGS) $(INCLUDES) $(INCLUDES2) $< -o $(OBJ_DIR)$@
 
@@ -62,50 +62,6 @@ NVPROF=
 ## automatic names for logging
 BRANCHNAME=$(shell git rev-parse --abbrev-ref HEAD)
 REPONAME=$(shell basename `git rev-parse --show-toplevel`)
-LOGPROFPATH=/data/work/jlevy/profile/
-RESULTSPATH=/data/work/jlevy/results/
-
-nametest:
-	echo $(REPONAME) $(BRANCHNAME)
-## runners
-
-short-index: all 
-		./$(PROG) index /data/work/jlevy/hg19_short/chr1p1.fasta
-
-srr150index: all
-		./$(PROG) index /data/work/jlevy/hg19.fasta
-
-
-
-short: all
-		 $(VALGRIND) $(NVPROF) ./$(PROG) gase_aln -g -t 1 -l 150 -v 1 /data/work/jlevy/hg19_short/chr1p1.fasta /data/work/jlevy/srr_short4/srr150_1.fastq /data/work/jlevy/srr_short4/srr150_2.fastq > short.sam 
-
-10k: all
-		 $(VALGRIND) $(NVPROF) ./$(PROG) gase_aln -g -t 1 -l 150 -v 1 /data/work/jlevy/hg19.fasta /data/work/jlevy/srr/150/10k_1.fastq /data/work/jlevy/srr/150/10k_2.fastq > $(RESULTSPATH)$(REPONAME)_$(BRANCHNAME)_10k.sam
-		sha256sum $(RESULTSPATH)$(REPONAME)_$(BRANCHNAME)_10k.sam
-125k: all
-		 $(VALGRIND) $(NVPROF) ./$(PROG) gase_aln -g -t 1 -l 150 -v 1 /data/work/jlevy/hg19.fasta /data/work/jlevy/srr/150/125k_1.fastq /data/work/jlevy/srr/150/125k_2.fastq > $(RESULTSPATH)$(REPONAME)_$(BRANCHNAME)_125k.sam
-		sha256sum $(RESULTSPATH)$(REPONAME)_$(BRANCHNAME)_125k.sam
-
-srr150: all
-		 $(VALGRIND) $(NVPROF) ./$(PROG) gase_aln -g -t 1 -l 150 /data/work/jlevy/hg19.fasta /data/work/jlevy/srr/150/SRR949537_1.fastq /data/work/jlevy/srr/150/SRR949537_2.fastq > $(RESULTSPATH)$(REPONAME)_$(BRANCHNAME)_srr150.sam
-		 sha256sum $(RESULTSPATH)$(REPONAME)_$(BRANCHNAME)_srr150.sam
-
-srr_threads: all
-		 $(VALGRIND) $(NVPROF) ./$(PROG) gase_aln -g -t $(N_THREAD) -l 150 /data/work/jlevy/hg19.fasta /data/work/jlevy/srr/150/SRR949537_1.fastq /data/work/jlevy/srr/150/SRR949537_2.fastq > $(RESULTSPATH)$(REPONAME)_$(BRANCHNAME)_srr150.sam
-
-#typing numbers is annoying
-srr: srr150
-
-srr250: all
-		$(VALGRIND) ./$(PROG) gase_aln -g -t 11 -l 257 /data/work/jlevy/hg19.fasta /data/work/jlevy/srr/250/SRR835433.fastq_1 /data/work/jlevy/srr/250/SRR835433.fastq_2 > $(RESULTSPATH)$(REPONAME)_$(BRANCHNAME)_srrr250.sam
-
-## profiler
-prof_125k: clean 125k gmon.out
-	gprof $(PROG) > $(LOGPROFPATH)$(REPONAME)_$(BRANCHNAME)_125k.log
-
-prof_srr150: clean srr150 gmon.out
-	gprof $(PROG) > $(LOGPROFPATH)$(REPONAME)_$(BRANCHNAME)_srr150.log
 
 ## builders
 all: makedir $(PROG) 
@@ -116,7 +72,7 @@ makedir:
 	@echo "If you donot see anything below this line then there is nothing to \"make\""
 
 bwa-gasal2:libbwa.a libseed.a libshd_filter.a $(GASAL_LIB_DIR)libgasal.a $(AOBJS) main.o
-		$(CXX) $(CFLAGS) $(DFLAGS) $(GPUSEED_OBJ_DIR)dlink.o $(AOBJS_PATH) $(OBJ_DIR)main.o -o $@ -L$(LIB_DIR) -L$(CUDA_LIB_DIR)  -L$(GASAL_LIB_DIR) -L$(GPUSEED_LIB_DIR) -lbwa -lseed -lshd_filter -lgasal $(LIBS)
+		$(CXX) $(CFLAGS) $(DFLAGS) $(GPUSEED_OBJ_DIR)dlink.o $(AOBJS_PATH) $(OBJ_DIR)main.o -o $@ -L$(LIB_DIR) -L$(CUDA_LIB_DIR) -L$(GASAL_LIB_DIR) -L$(GPUSEED_LIB_DIR) -lbwa -lseed -lshd_filter -lgasal $(LIBS)
 
 
 libbwa.a:$(LOBJS)
@@ -215,4 +171,3 @@ string_cp.o: print.h
 test_modifier.o: read_modifier.h vector_filter.h
 vector_filter.o: print.h vector_filter.h popcount.h bit_convert.h mask.h
 vector_filterMain.o: vector_filter.h mask.h
-#gasal.o: gasal.h gasal_kernels_inl.h

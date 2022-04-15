@@ -28,7 +28,7 @@
 extern "C" {
 #endif
 
-mem_seed_v *seed_gpu(int argc, char **argv, int n_reads, int64_t n_processed);
+mem_seed_v *seed_gpu(const char *read_file_name, int n_reads, int64_t n_processed, bwt_t_gpu *bwt);
 
 #ifdef __cplusplus
 }
@@ -185,9 +185,9 @@ typedef struct {
     mem_alnreg_v *regs;
     int64_t n_processed;
 	mem_seed_v *gpu_results;
-	int argc;
 	int n_reads;
-	char **argv;
+	char *read_file;
+    bwt_t_gpu *bwt_gpu;
 } worker_t;
 
 typedef struct {
@@ -409,7 +409,7 @@ static void mem_collect_intv_gpu(void *data)
 {
 	worker_t *w = (worker_t*)data;
 	//printf("=====> Calling GPUSeed \n");
-	w->gpu_results = seed_gpu(w->argc, w->argv, w->n_reads, w->n_processed);
+	w->gpu_results = seed_gpu(w->read_file, w->n_reads, w->n_processed, w->bwt_gpu);
 	//printf("=====> BAck from Calling GPUSeed \n");
 	if (bwa_verbose >= 4) mem_print_gpu(w->gpu_results, w->n_reads);
 }
@@ -2564,7 +2564,7 @@ static void worker2(void *data, int i, int tid, int batch_size, int n_reads, gas
     }
 }
 
-void mem_process_seqs(const mem_opt_t *opt, const bwt_t *bwt, const bntseq_t *bns, const uint8_t *pac, int64_t n_processed, int n, bseq1_t *seqs, const mem_pestat_t *pes0, int argc, char **argv) {
+void mem_process_seqs(const mem_opt_t *opt, const bwt_t *bwt, const bntseq_t *bns, const uint8_t *pac, int64_t n_processed, int n, bseq1_t *seqs, const mem_pestat_t *pes0, char *read_file, bwt_t_gpu *bwt_gpu) {
     worker_t w;
     mem_pestat_t pes[4];
     double ctime, rtime;
@@ -2579,15 +2579,13 @@ void mem_process_seqs(const mem_opt_t *opt, const bwt_t *bwt, const bntseq_t *bn
     w.bwt = bwt;
     w.bns = bns;
     w.pac = pac;
-    w.argc = argc;
-	w.argv = argv;
     w.seqs = seqs;
     w.n_processed = n_processed;
     w.pes = &pes[0];
+    w.bwt_gpu = bwt_gpu;
 
-    w.gpu_results = calloc(n, sizeof(mem_seed_v));
-    w.argc = argc;
-	w.argv = argv;
+    w.gpu_results = calloc(n, sizeof(mem_seed_v));   
+	w.read_file = read_file;
 	w.n_reads = n;
 
     mem_collect_intv_gpu(&w);
@@ -2625,4 +2623,3 @@ void mem_process_seqs(const mem_opt_t *opt, const bwt_t *bwt, const bntseq_t *bn
     if (bwa_verbose >= 3)
         fprintf(stderr, "[M::%s] Processed %d reads in %.3f CPU sec, %.3f real sec\n", __func__, n, cputime() - ctime, realtime() - rtime);
 }
-
