@@ -37,7 +37,7 @@ AOBJS_PATH=$(addprefix $(OBJ_DIR),$(AOBJS))
 PROG=bwa-gasal2
 INCLUDES= -I$(GASAL_INCLUDE_DIR)
 INCLUDES2= -I$(GPUSEED_INCLUDE_DIR)  
-LIBS=-lm -lz -lpthread -lcudart -lcudadevrt -lnvToolsExt
+LIBS=-lm -lz -ldl -lpthread -lcudart -lcudadevrt -lnvToolsExt
 SUBDIRS=.
 
 
@@ -47,7 +47,7 @@ endif
 
 #.SUFFIXES:.c .o .cc .cpp .cu
 %.o: %.c
-	$(CXX) -c $(CFLAGS) $(DFLAGS) $(INCLUDES) $(INCLUDES2) -lnvToolsExt $< -o $(OBJ_DIR)$@
+	$(CXX) -c $(CFLAGS) $(DFLAGS) $(INCLUDES) $(INCLUDES2) $< -o $(OBJ_DIR)$@
 %.o: %.cpp
 	$(CXX) -c $(CFLAGS) $(INCLUDES) $(INCLUDES2) $< -o $(OBJ_DIR)$@
 

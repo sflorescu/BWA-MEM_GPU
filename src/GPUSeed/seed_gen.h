@@ -31,7 +31,9 @@ extern "C" {
 void bwt_destroy_gpu(bwt_t_gpu *bwt);
 void bwt_restore_sa_gpu(const char *fn, bwt_t_gpu *bwt);
 bwt_t_gpu *bwt_restore_bwt_gpu(const char *fn);
-mem_seed_v *seed_gpu(const char *read_file_name, int n_reads, int64_t n_processed, bwt_t_gpu *bwt);
+bwt_t_gpu gpu_cpy_wrapper(bwt_t_gpu *bwt);
+void free_bwt_gpu(bwt_t_gpu bwt_gpu);
+mem_seed_v *seed_gpu(const char *read_file_name, int n_reads, int64_t n_processed, bwt_t_gpu *bwt, bwt_t_gpu bwt_gpu);
 
 #ifdef __cplusplus
 }

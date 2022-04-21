@@ -28,7 +28,7 @@
 extern "C" {
 #endif
 
-mem_seed_v *seed_gpu(const char *read_file_name, int n_reads, int64_t n_processed, bwt_t_gpu *bwt);
+mem_seed_v *seed_gpu(const char *read_file_name, int n_reads, int64_t n_processed, bwt_t_gpu *bwt, bwt_t_gpu bwt_gpu);
 
 #ifdef __cplusplus
 }
@@ -183,11 +183,12 @@ typedef struct {
     smem_aux_t **aux;
     bseq1_t *seqs;
     mem_alnreg_v *regs;
+    mem_seed_v *gpu_results;
     int64_t n_processed;
-	mem_seed_v *gpu_results;
 	int n_reads;
 	char *read_file;
     bwt_t_gpu *bwt_gpu;
+    bwt_t_gpu bwt_gpu2;
 } worker_t;
 
 typedef struct {
@@ -405,13 +406,16 @@ void mem_print_gpu(mem_seed_v *data, int n_reads)
 		}
 }
 
-static void mem_collect_intv_gpu(void *data)
+static void mem_collect_intv_gpu(void *data, const char *read_file, int n_reads, int64_t n_processed, bwt_t_gpu *bwt_gpu)
 {
-	worker_t *w = (worker_t*)data;
+    double gpuseed_time;
+    worker_t *w = (worker_t*)data;
 	//printf("=====> Calling GPUSeed \n");
-	w->gpu_results = seed_gpu(w->read_file, w->n_reads, w->n_processed, w->bwt_gpu);
+    //gpuseed_time = realtime();
+	//w->gpu_results = seed_gpu(read_file, n_reads, n_processed, bwt_gpu);
+    //extension_time[0]->gpuseed += (realtime() - gpuseed_time);
 	//printf("=====> BAck from Calling GPUSeed \n");
-	if (bwa_verbose >= 4) mem_print_gpu(w->gpu_results, w->n_reads);
+	//if (bwa_verbose >= 4) mem_print_gpu(w->gpu_results, w->n_reads);
 }
 
 /************
@@ -2028,6 +2032,7 @@ typedef struct {
     int batch_start;
 } metadata_gpu_batch_t ;
 
+//void mem_align1_core(const mem_opt_t *opt, const bwt_t *bwt, const bntseq_t *bns, const uint8_t *pac, bseq1_t *seq, int batch_size, int batch_start_idx, mem_alnreg_v *w_regs, int tid, gasal_gpu_storage_v *gpu_storage_vec, const char *read_file, int n_reads, int64_t n_processed, bwt_t_gpu *bwt_gpu, bwt_t_gpu bwt_gpu2) {
 void mem_align1_core(const mem_opt_t *opt, const bwt_t *bwt, const bntseq_t *bns, const uint8_t *pac, bseq1_t *seq, int batch_size, int batch_start_idx, mem_alnreg_v *w_regs, int tid, gasal_gpu_storage_v *gpu_storage_vec, mem_seed_v *gpu_results) {
     int j,  r;
     extern time_struct *extension_time;
@@ -2039,6 +2044,13 @@ void mem_align1_core(const mem_opt_t *opt, const bwt_t *bwt, const bntseq_t *bns
 	double time_mem_chain, time_mem_chain_flt, time_mem_flt_chained_seeds;
 
 	full_mem_aln1_core = realtime();
+
+    /*double gpuseed;
+    gpuseed = realtime();
+    mem_seed_v *gpu_results;
+    gpu_results = calloc(batch_size, sizeof(mem_seed_v));
+    gpu_results = seed_gpu(read_file, batch_size, batch_start_idx, bwt_gpu, bwt_gpu2);
+    extension_time[tid].gpuseed += (realtime() - gpuseed);*/
 
     // J.L. 2019-05-20  Disabled selection (there's no choice anymore)
     // gasal_set_device(GPU_SELECT, false);
@@ -2158,9 +2170,13 @@ void mem_align1_core(const mem_opt_t *opt, const bwt_t *bwt, const bntseq_t *bns
                 // ===NOTE: computing chains, store them in the mem_chain_v chn
                 chain_preprocess = realtime();
                 time_mem_chain = realtime();
-                //printf("I go here1\n");
-                chn = mem_chain(opt, bwt, bns, seq[j].l_seq, (uint8_t*)(read_seq), gpu_results[j]);
-                //printf("I go here2\n");
+                PUSH_RANGE("mem_chaining",1)
+                //if (batch_start_idx == 0) {
+                    chn = mem_chain(opt, bwt, bns, seq[j].l_seq, (uint8_t*)(read_seq), gpu_results[j]);
+                //}
+                //else {
+                    //chn = mem_chain(opt, bwt, bns, seq[j].l_seq, (uint8_t*)(read_seq), gpu_results[j-batch_start_idx]);
+                //}
                 extension_time[tid].time_mem_chain += (realtime() - time_mem_chain);
                 time_mem_chain_flt = realtime();
                 chn.n = mem_chain_flt(opt, chn.n, chn.a);
@@ -2175,6 +2191,7 @@ void mem_align1_core(const mem_opt_t *opt, const bwt_t *bwt, const bntseq_t *bns
                 extension_time[tid].time_mem_flt_chained_seeds += (realtime() - time_mem_flt_chained_seeds);
 
                 extension_time[tid].chain_preprocess += (realtime() - chain_preprocess);
+                POP_RANGE
 
 
                 // ===NOTE: CHAINS DONE. Fetching sequence for seeds
@@ -2433,7 +2450,7 @@ void mem_align1_core(const mem_opt_t *opt, const bwt_t *bwt, const bntseq_t *bns
     }// end while (internal_batch_done < internal_batch_count) 
     //kv_destroy(regs_vec); //J.L. kv remove
     //fprintf(stderr, "--------------------------------------");
-
+    //free(gpu_results);
     extension_time[tid].full_mem_aln1_core += (realtime() - full_mem_aln1_core);
 }
 
@@ -2535,12 +2552,12 @@ mem_aln_t mem_reg2aln(const mem_opt_t *opt, const bntseq_t *bns, const uint8_t *
 
 void worker1(void *data, int i, int tid, int batch_size, int total_reads, gasal_gpu_storage_v *gpu_storage_vec) {
     worker_t *w = (worker_t*) data;
-    
+    //printf("[tid: %d]Batch size %d and total_reads %d Starting at %d\n",tid,batch_size, total_reads,i);
     // worker truncated for gasal - see original function in the original bwamem.
-
     if (bwa_verbose >= 4)
         printf("=====> Processing read '%s' <=====\n", w->seqs[i].name);
     mem_align1_core(w->opt, w->bwt, w->bns, w->pac, w->seqs, batch_size, i, w->regs, tid, gpu_storage_vec, w->gpu_results);
+    //mem_align1_core(w->opt, w->bwt, w->bns, w->pac, w->seqs, batch_size, i, w->regs, tid, gpu_storage_vec, w->read_file, w->n_reads, w->n_processed, w->bwt_gpu, w->bwt_gpu2);
 
 }
 
@@ -2564,9 +2581,10 @@ static void worker2(void *data, int i, int tid, int batch_size, int n_reads, gas
     }
 }
 
-void mem_process_seqs(const mem_opt_t *opt, const bwt_t *bwt, const bntseq_t *bns, const uint8_t *pac, int64_t n_processed, int n, bseq1_t *seqs, const mem_pestat_t *pes0, char *read_file, bwt_t_gpu *bwt_gpu) {
+void mem_process_seqs(const mem_opt_t *opt, const bwt_t *bwt, const bntseq_t *bns, const uint8_t *pac, int64_t n_processed, int n, bseq1_t *seqs, const mem_pestat_t *pes0, char *read_file, bwt_t_gpu *bwt_gpu, bwt_t_gpu bwt_gpu2) {
     worker_t w;
     mem_pestat_t pes[4];
+    extern time_struct *extension_time;
     double ctime, rtime;
     int i;
     extern double *load_balance_waste_time;
@@ -2583,17 +2601,21 @@ void mem_process_seqs(const mem_opt_t *opt, const bwt_t *bwt, const bntseq_t *bn
     w.n_processed = n_processed;
     w.pes = &pes[0];
     w.bwt_gpu = bwt_gpu;
-
-    w.gpu_results = calloc(n, sizeof(mem_seed_v));   
-	w.read_file = read_file;
+    w.bwt_gpu2 = bwt_gpu2;
+ 
+	w.gpu_results = calloc(n, sizeof(mem_seed_v));
+    w.read_file = read_file;
 	w.n_reads = n;
 
-    mem_collect_intv_gpu(&w);
+    double gpuseed;
+    gpuseed = realtime();
+    w.gpu_results = seed_gpu(read_file, n, n_processed, bwt_gpu, bwt_gpu2);
+    extension_time[0].gpuseed += (realtime() - gpuseed);
 
     kt_for(opt->n_threads, worker1, &w, /*(opt->flag & MEM_F_PE) ? n >> 1 : */n); // find mapping positions
     
     free(w.gpu_results);
-
+    
     double min_exit_time = load_balance_waste_time[0];
     double max_exit_time = load_balance_waste_time[0];
     for (i = 1; i < opt->n_threads; i++) {

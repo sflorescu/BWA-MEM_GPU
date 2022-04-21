@@ -34,6 +34,7 @@ typedef struct {
 	bwaidx_t *idx;
 	char *read_file;
 	bwt_t_gpu *bwt;
+	bwt_t_gpu bwt_gpu;
 } ktp_aux_t;
 
 typedef struct {
@@ -77,18 +78,18 @@ static void *process(void *shared, int step, void *_data)
 				fprintf(stderr, "[M::%s] %d single-end sequences; %d paired-end sequences\n", __func__, n_sep[0], n_sep[1]);
 			if (n_sep[0]) {
 				tmp_opt.flag &= ~MEM_F_PE;
-				mem_process_seqs(&tmp_opt, idx->bwt, idx->bns, idx->pac, aux->n_processed, n_sep[0], sep[0], 0, aux->read_file, aux->bwt);
+				mem_process_seqs(&tmp_opt, idx->bwt, idx->bns, idx->pac, aux->n_processed, n_sep[0], sep[0], 0, aux->read_file, aux->bwt, aux->bwt_gpu);
 				for (i = 0; i < n_sep[0]; ++i)
 					data->seqs[sep[0][i].id].sam = sep[0][i].sam;
 			}
 			if (n_sep[1]) {
 				tmp_opt.flag |= MEM_F_PE;
-				mem_process_seqs(&tmp_opt, idx->bwt, idx->bns, idx->pac, aux->n_processed + n_sep[0], n_sep[1], sep[1], aux->pes0, aux->read_file, aux->bwt);
+				mem_process_seqs(&tmp_opt, idx->bwt, idx->bns, idx->pac, aux->n_processed + n_sep[0], n_sep[1], sep[1], aux->pes0, aux->read_file, aux->bwt, aux->bwt_gpu);
 				for (i = 0; i < n_sep[1]; ++i)
 					data->seqs[sep[1][i].id].sam = sep[1][i].sam;
 			}
 			free(sep[0]); free(sep[1]);
-		} else mem_process_seqs(opt, idx->bwt, idx->bns, idx->pac, aux->n_processed, data->n_seqs, data->seqs, aux->pes0, aux->read_file, aux->bwt);
+		} else mem_process_seqs(opt, idx->bwt, idx->bns, idx->pac, aux->n_processed, data->n_seqs, data->seqs, aux->pes0, aux->read_file, aux->bwt, aux->bwt_gpu);
 		aux->n_processed += data->n_seqs;
 		return data;
 	} else if (step == 2) {
@@ -402,7 +403,6 @@ int gase_aln(int argc, char *argv[])
 	sub_scores.gap_open = opt->o_del;
 	sub_scores.gap_extend = opt->e_del;
 
-
 	gasal_copy_subst_scores(&sub_scores);
 
 	// J.L. 2019-01-07 10:43 added args object
@@ -478,6 +478,8 @@ int gase_aln(int argc, char *argv[])
 	bwt_restore_sa_gpu(str, aux.bwt);
 	free(str);
 
+	aux.bwt_gpu = gpu_cpy_wrapper(aux.bwt);
+
 	bwa_print_sam_hdr(aux.idx->bns, hdr_line);
 	aux.actual_chunk_size = fixed_chunk_size > 0? fixed_chunk_size : opt->chunk_size * opt->n_threads;
 	kt_pipeline(no_mt_io? 1 : 2, process, &aux, 3);
@@ -489,6 +491,7 @@ int gase_aln(int argc, char *argv[])
 		gasal_destroy_gpu_storage_v(&(gpu_storage_vec_arr[z]));
 	}
 	free(gpu_storage_vec_arr);
+	free_bwt_gpu(aux.bwt_gpu);
 	extension_time[0].gpu_mem_free += (realtime() - time_extend);
 	free(hdr_line);
 	free(opt);

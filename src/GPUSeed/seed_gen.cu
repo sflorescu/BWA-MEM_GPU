@@ -916,6 +916,29 @@ void  print_seq_packed(int length, uint32_t* seq, int start, int fow){
    //fprintf(stderr,"\n");
 }
 
+bwt_t_gpu gpu_cpy_wrapper(bwt_t_gpu *bwt){
+
+    bwt_t_gpu bwt_gpu;
+
+    double index_copy_time = realtime_gpu();
+	gpuErrchk(cudaMalloc(&(bwt_gpu.bwt), bwt->bwt_size*sizeof(uint32_t)));
+	gpuErrchk(cudaMalloc(&(bwt_gpu.sa), bwt->n_sa*sizeof(bwtint_t_gpu)));
+	gpuErrchk(cudaMemcpy(bwt_gpu.bwt, bwt->bwt, bwt->bwt_size*sizeof(uint32_t),cudaMemcpyHostToDevice));
+    gpuErrchk(cudaMemcpy(bwt_gpu.sa, bwt->sa, bwt->n_sa*sizeof(bwtint_t_gpu),cudaMemcpyHostToDevice));
+    bwt_gpu.primary = bwt->primary;
+    bwt_gpu.seq_len = bwt->seq_len;
+    bwt_gpu.sa_intv = bwt->sa_intv;
+    //fprintf(stderr, "SA intv %d\n", bwt->sa_intv);
+    bwt_gpu.n_sa = bwt->n_sa;
+    cudaMemcpyToSymbol(L2_gpu, bwt->L2, 5*sizeof(bwtint_t_gpu), 0, cudaMemcpyHostToDevice);
+	return bwt_gpu;
+}
+
+void free_bwt_gpu(bwt_t_gpu bwt_gpu){
+	cudaFree(bwt_gpu.bwt);
+	cudaFree(bwt_gpu.sa);
+}
+
 
 unsigned char seq_nt4_table[256] = {
    4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4,
@@ -944,7 +967,7 @@ unsigned char seq_nt4_table[256] = {
 extern "C" {
 #endif
 
-mem_seed_v *seed_gpu(const char *read_file_name, int n_reads, int64_t n_processed, bwt_t_gpu *bwt) {
+mem_seed_v *seed_gpu(const char *read_file_name, int n_reads, int64_t n_processed, bwt_t_gpu *bwt, bwt_t_gpu bwt_gpu) {
 
 	//fprintf(stderr, "I go to seed with n_reads: %d and Processed: %ld\n",n_reads, n_processed);
 	//printf("*** [GPU Wrapper] Seq: "); for (int j = 0; j < len; ++j) putchar("ACGTN"[(int)seq[j]]); putchar('\n');
@@ -958,47 +981,9 @@ mem_seed_v *seed_gpu(const char *read_file_name, int n_reads, int64_t n_processe
 	int print_out = 0;
 	int print_stats = 0;
 	int c;
-	/*while ((c = getopt(argc, argv, "k:so")) >= 0) {
-			switch (c) {
-			case 'k':
-				min_seed_size = atoi(optarg);
-				break;
-			case 's':
-				is_smem = 1;
-				break;
-			case 'o':
-				print_out = 1;
-				break;
-
-			}
-	}*/
-
-    bwt_t_gpu bwt_gpu;
-
-	cudaStream_t stream1, stream2;
 	cudaError_t result;
-	result = cudaStreamCreate(&stream1);
-	result = cudaStreamCreate(&stream2);
 
     double index_copy_time = realtime_gpu();
-	gpuErrchk(cudaMalloc(&(bwt_gpu.bwt), bwt->bwt_size*sizeof(uint32_t)));
-	gpuErrchk(cudaMalloc(&(bwt_gpu.sa), bwt->n_sa*sizeof(bwtint_t_gpu)));
-	gpuErrchk(cudaMemcpyAsync(bwt_gpu.bwt, bwt->bwt, bwt->bwt_size*sizeof(uint32_t),cudaMemcpyHostToDevice, stream1));
-    gpuErrchk(cudaMemcpyAsync(bwt_gpu.sa, bwt->sa, bwt->n_sa*sizeof(bwtint_t_gpu),cudaMemcpyHostToDevice, stream2));
-    bwt_gpu.primary = bwt->primary;
-    bwt_gpu.seq_len = bwt->seq_len;
-    bwt_gpu.sa_intv = bwt->sa_intv;
-    //fprintf(stderr, "SA intv %d\n", bwt->sa_intv);
-    bwt_gpu.n_sa = bwt->n_sa;
-    cudaMemcpyToSymbolAsync(L2_gpu, bwt->L2, 5*sizeof(bwtint_t_gpu), 0, cudaMemcpyHostToDevice, stream1);
-
-    /*fprintf(stderr, "primary=%llu\n", bwt->primary);
-    fprintf(stderr, "seq_len=%llu\n", bwt->seq_len);
-    fprintf(stderr, "L2[0]=%llu\n", bwt->L2[0]);
-    fprintf(stderr, "L2[1]=%llu\n", bwt->L2[1]);
-    fprintf(stderr, "L2[2]=%llu\n", bwt->L2[2]);
-    fprintf(stderr, "L2[3]=%llu\n", bwt->L2[3]);
-    fprintf(stderr, "L2[4]=%llu\n", bwt->L2[4]);*/
 
     if (print_stats)
 		fprintf(stderr,"Index copied to GPU memory in %.3f seconds\n", realtime_gpu() - index_copy_time);
@@ -1012,7 +997,6 @@ mem_seed_v *seed_gpu(const char *read_file_name, int n_reads, int64_t n_processe
     int threads_per_block_pre_calc_seed = 128;
     int num_blocks_pre_calc_seed = ((1 << (pre_calc_seed_len<<1)) + threads_per_block_pre_calc_seed - 1)/threads_per_block_pre_calc_seed;
     pre_calc_seed_intervals_gpu<<<num_blocks_pre_calc_seed, threads_per_block_pre_calc_seed>>>(pre_calc_seed_intervals, pre_calc_seed_len, bwt_gpu, (1 << (pre_calc_seed_len<<1)));
-    //cudaDeviceSynchronize();
     
 	if (print_stats)
 		fprintf(stderr,"Pre-calculate intervals GPU in %.3f seconds\n", realtime_gpu() - precalc_time);
@@ -1038,7 +1022,6 @@ mem_seed_v *seed_gpu(const char *read_file_name, int n_reads, int64_t n_processe
 	cudaStream_t stream_pipeline, stream[nStreams];
 
   	for (int i = 0; i < nStreams; ++i){
-    	//result = cudaStreamCreate(&stream[i]);
 		result = cudaStreamCreateWithFlags(&stream[i], cudaStreamNonBlocking);
 	}	
 
@@ -1046,11 +1029,9 @@ mem_seed_v *seed_gpu(const char *read_file_name, int n_reads, int64_t n_processe
 	while (!all_done) {
 	//for (int m=0; m < nStreams; ++m){
 		if (m % 2 == 0) {
-			//cudaStreamCopyAttributes(stream[1], stream1);
 			stream_pipeline = stream[0];
 		}
 		else if (m % 2 == 1){
-			//cudaStreamCopyAttributes(stream[1], stream2);
 			stream_pipeline = stream[1];
 		}
 		int total_reads = 0;
@@ -1564,18 +1545,11 @@ mem_seed_v *seed_gpu(const char *read_file_name, int n_reads, int64_t n_processe
 	free(read_batch); free(read_sizes); free(read_offsets);
 	double mem_time3 = realtime_gpu();
 	cudaFree(pre_calc_seed_intervals);
-	
-	cudaFree(bwt_gpu.bwt);
-	cudaFree(bwt_gpu.sa);
-	//bwt_destroy_gpu(bwt);
   	
-	  for (int i = 0; i < nStreams; ++i){
+	for (int i = 0; i < nStreams; ++i){
     	result = cudaStreamDestroy(stream[i]);
 	}
 
-	result = cudaStreamDestroy(stream1);
-	result = cudaStreamDestroy(stream2);
-	
 	if (print_stats) {
 		if (is_smem) {
 			fprintf(stderr, "SMEM seed computing time stats\n");
