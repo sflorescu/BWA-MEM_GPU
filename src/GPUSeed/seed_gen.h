@@ -2,6 +2,7 @@
 #define __SEED_GEN_H__
 
 #include <stdbool.h>
+#include"../bwa.h"
 
 typedef uint32_t bwtint_t_gpu;
 
@@ -33,7 +34,7 @@ void bwt_restore_sa_gpu(const char *fn, bwt_t_gpu *bwt);
 bwt_t_gpu *bwt_restore_bwt_gpu(const char *fn);
 bwt_t_gpu gpu_cpy_wrapper(bwt_t_gpu *bwt);
 void free_bwt_gpu(bwt_t_gpu bwt_gpu);
-mem_seed_v *seed_gpu(const char *read_file_name, int n_reads, int64_t n_processed, bwt_t_gpu *bwt, bwt_t_gpu bwt_gpu);
+mem_seed_v *seed_gpu(const char *read_file_name, int n_reads, int64_t n_processed, bwt_t_gpu *bwt, bwt_t_gpu bwt_gpu, bseq1_t *seqs);
 
 #ifdef __cplusplus
 }

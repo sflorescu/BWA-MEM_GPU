@@ -28,7 +28,7 @@
 extern "C" {
 #endif
 
-mem_seed_v *seed_gpu(const char *read_file_name, int n_reads, int64_t n_processed, bwt_t_gpu *bwt, bwt_t_gpu bwt_gpu);
+mem_seed_v *seed_gpu(const char *read_file_name, int n_reads, int64_t n_processed, bwt_t_gpu *bwt, bwt_t_gpu bwt_gpu, bseq1_t *seqs);
 
 #ifdef __cplusplus
 }
@@ -398,10 +398,10 @@ void mem_print_gpu(mem_seed_v *data, int n_reads)
 {
 		for (int i = 0; i < n_reads; i++)
 		{
-			printf("=====> Printing SMEM(s) in read '%d' <=====\n", i+1);
+			fprintf(stderr,"=====> Printing SMEM(s) in read '%d' Total : %d<=====\n", i+1, data[i].seed_counter);
 			for (int j = 0; j < data[i].seed_counter; j++)
 			{
-				printf("[GPUSeed Host] Read[%d, %d] -> %lu\n",data[i].a[j].qbeg,(data[i].a[j].qbeg)+(data[i].a[j].len),data[i].a[j].rbeg);
+				fprintf(stderr,"[GPUSeed Host] Read[%d, %d] -> %lu\n",data[i].a[j].qbeg,(data[i].a[j].qbeg)+(data[i].a[j].len),data[i].a[j].rbeg);
 			}
 		}
 }
@@ -2133,9 +2133,9 @@ void mem_align1_core(const mem_opt_t *opt, const bwt_t *bwt, const bntseq_t *bns
             gpu_stream_idx[SHORT] < gpu_storage_vec[SHORT].n && 
             gpu_stream_idx[LONG] < gpu_storage_vec[LONG].n) 
 		{
-            #ifdef DEBUG
-            fprintf(stderr, ">[FILL] gpu_stream_idx=%d, internal_batch_start_idx (%d) < batch_size (%d)\n", gpu_stream_idx[SHORT], internal_batch_start_idx, batch_size);    
-            #endif
+            //#ifdef DEBUG
+            //fprintf(stderr, ">[FILL] gpu_stream_idx=%d, internal_batch_start_idx (%d) < batch_size (%d) and batch_processed: %d\n", gpu_stream_idx[SHORT], internal_batch_start_idx, batch_size, batch_processed);    
+            //#endif
 
             //TODO: factorize SHORT/LONG
             gpu_batch_short_arr[gpu_stream_idx[SHORT]].n_query_batch = 0;
@@ -2155,7 +2155,7 @@ void mem_align1_core(const mem_opt_t *opt, const bwt_t *bwt, const bntseq_t *bns
 
             for (j = batch_start_idx + internal_batch_start_idx; j < (batch_start_idx + internal_batch_start_idx) + internal_batch_size; ++j)
 		    {
-                // fprintf(stderr, "seq process: j < batch_start_idx + internal_batch_start_idx + internal_batch_size (%d < %d + %d + %d)\n", j, batch_start_idx, internal_batch_start_idx , internal_batch_size);
+                //fprintf(stderr, "seq process: j < batch_start_idx + internal_batch_start_idx + internal_batch_size (%d < %d + %d + %d)\n", j, batch_start_idx, internal_batch_start_idx , internal_batch_size);
                 // The following is BWA related.
                 mem_chain_v chn;
                 mem_alnreg_v regs;
@@ -2237,6 +2237,7 @@ void mem_align1_core(const mem_opt_t *opt, const bwt_t *bwt, const bntseq_t *bns
 
                     // launch alignment processes
                     //[KSW_CPU] using CPU computation
+                    //fprintf(stderr, "[Alignments: %d], [N_query_batch: %d], [N_target_batch: %d]\n",cur->n_seqs, cur->n_query_batch, cur->n_target_batch);
                     gasal_aln_async(cur->gpu_storage, cur->n_query_batch, cur->n_target_batch, cur->n_seqs, args);
                     //decoy_cpu_align(cur->gpu_storage, cur->n_seqs, opt);
 
@@ -2552,7 +2553,7 @@ mem_aln_t mem_reg2aln(const mem_opt_t *opt, const bntseq_t *bns, const uint8_t *
 
 void worker1(void *data, int i, int tid, int batch_size, int total_reads, gasal_gpu_storage_v *gpu_storage_vec) {
     worker_t *w = (worker_t*) data;
-    //printf("[tid: %d]Batch size %d and total_reads %d Starting at %d\n",tid,batch_size, total_reads,i);
+    //fprintf(stderr, "[tid: %d]Batch size %d and total_reads %d Starting at %d\n",tid,batch_size, total_reads,i);
     // worker truncated for gasal - see original function in the original bwamem.
     if (bwa_verbose >= 4)
         printf("=====> Processing read '%s' <=====\n", w->seqs[i].name);
@@ -2607,10 +2608,13 @@ void mem_process_seqs(const mem_opt_t *opt, const bwt_t *bwt, const bntseq_t *bn
     w.read_file = read_file;
 	w.n_reads = n;
 
+    //fprintf(stderr,"Seq details l: %d %s\n", w.seqs[0].l_seq, w.seqs[0].seq);
+
     double gpuseed;
     gpuseed = realtime();
-    w.gpu_results = seed_gpu(read_file, n, n_processed, bwt_gpu, bwt_gpu2);
+    w.gpu_results = seed_gpu(read_file, n, n_processed, bwt_gpu, bwt_gpu2, w.seqs);
     extension_time[0].gpuseed += (realtime() - gpuseed);
+    mem_print_gpu(w.gpu_results, n);
 
     kt_for(opt->n_threads, worker1, &w, /*(opt->flag & MEM_F_PE) ? n >> 1 : */n); // find mapping positions
     
