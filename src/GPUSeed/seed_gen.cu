@@ -4,7 +4,7 @@
 #include <sys/time.h>
 #include <math.h>
 #include <assert.h>
-#include "./cub/cub/cub.cuh"
+#include "cub/cub.cuh"
 #include "seed_gen.h"
 #include "nvToolsExt.h"
 
@@ -1470,58 +1470,40 @@ mem_seed_v *seed_gpu(const char *read_file_name, int n_reads, int64_t n_processe
 		//if (!itteration)
 		//printf("Total reads: %d\n",total_reads);
 		nvtxRangePushA("GPUSeedResults");
-		counter = (int*)calloc(total_reads,sizeof(int));
+		//counter = (int*)calloc(total_reads,sizeof(int));
 		//else
 		//fprintf(stderr,"Total reads: %d, Reads_processed: %d\n",total_reads, reads_processed);
+		
 		int i, j , k;
-		for (i = 0, j = 0; i < total_reads; i++) {
-			int y;
-			for (y = 0;  y < n_ref_pos_fow_rev[i] && j < n_seeds_sum_fow_rev; j++, y++) {
-				counter[i]++;
-			}
-		}
-
 		int total_n_ref_pos_fow_rev = 0;
 		char sign[2] = {'+', '-'};
 		uint32_t seed_pos;
 		for (i = 0, j = 0, k = reads_processed; i < total_reads; i++, k++) {
-			//printf("(%d) Seeds: (%d)\n",k, counter[i]);
 			if (k == n_reads) break;
-			//int counter_seeds = 0;
-			gpu_results[k].a = (mem_seed_t*)malloc(counter[i]*sizeof(mem_seed_t));
+			gpu_results[k].a = (mem_seed_t*)malloc(n_ref_pos_fow_rev[i]*sizeof(mem_seed_t));
 			if(gpu_results[k].a == NULL) exit(1);
 			
 			int y;
 			total_n_ref_pos_fow_rev += n_ref_pos_fow_rev[i];
-			//if (is_smem) fprintf(stdout, "/*===================================SMEM seeds in read no. %d (Read[begin, End] -> starting position(s) on the reference)===================================*/\n", reads_processed + i  + 1);
 			int prev_seed_begin = -1, prev_seed_end = -1;
 			for (y = 0;  y < n_ref_pos_fow_rev[i] && j < n_seeds_sum_fow_rev; j++, y++) {
-				//counter_seeds++;
 				if (((uint32_t)seed_read_pos_fow_rev[j].y) >> 31 == 1){
-					//printf("[1] Y %d and J %d\n",y,j);
 					seed_pos = 2 * bwt->seq_len - seed_ref_pos_fow_rev[j] - ((seed_read_pos_fow_rev[j].y << 1 >> 1) - (seed_read_pos_fow_rev[j].x << 1 >> 1));
 					gpu_results[k].a[y].rbeg = seed_pos;
 					gpu_results[k].a[y].qbeg = (seed_read_pos_fow_rev[j].x << 1 >> 1);
 					gpu_results[k].a[y].len = gpu_results[k].a[y].score =((seed_read_pos_fow_rev[j].y << 1 >> 1) - (seed_read_pos_fow_rev[j].x << 1 >> 1));
-					//fprintf(stdout, "[GPUSeed] Read[%d, %d] -> %llu\n", gpu_results[i].a[y].qbeg, gpu_results[i].a[y].qbeg + gpu_results[i].a[y].len, gpu_results[i].a[y].rbeg);
 				}
 				else {
-					//printf("[2] Y %d and J %d\n",y,j);
-					//fprintf(stdout,"\n");					
 					gpu_results[k].a[y].rbeg = seed_ref_pos_fow_rev[j];
 					gpu_results[k].a[y].qbeg = (seed_read_pos_fow_rev[j].x << 1 >> 1);
 					gpu_results[k].a[y].len = gpu_results[k].a[y].score =((seed_read_pos_fow_rev[j].y << 1 >> 1) - (seed_read_pos_fow_rev[j].x << 1 >> 1));
-					//fprintf(stdout, "[GPUSeed] Read[%d, %d] -> %llu\n", gpu_results[i].a[y].qbeg, gpu_results[i].a[y].qbeg + gpu_results[i].a[y].len, gpu_results[i].a[y].rbeg);
 				}
 				prev_seed_begin = seed_read_pos_fow_rev[j].x;
 				prev_seed_end = (seed_read_pos_fow_rev[j].y);
 			}
-		//fprintf(stdout, "\n");
-		//printf("(%d) Seeds: %d\n",i,counter_seeds);
-		gpu_results[k].seed_counter = counter[i];
+		gpu_results[k].seed_counter = n_ref_pos_fow_rev[i];
 		gpu_results[k].n = total_reads;
 		gpu_results[k].m = n_seeds_sum_fow_rev;
-		//printf("(%d) Seeds: %d, Reads: %ld, Totals: %ld\n",k,gpu_results[i].seed_counter, gpu_results[k].n, gpu_results[k].m);
 		}
 		reads_processed = reads_processed + total_reads;
 		//if (reads_processed >= n_reads) all_done = 1;

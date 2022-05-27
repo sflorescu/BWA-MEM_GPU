@@ -2614,7 +2614,7 @@ void mem_process_seqs(const mem_opt_t *opt, const bwt_t *bwt, const bntseq_t *bn
     gpuseed = realtime();
     w.gpu_results = seed_gpu(read_file, n, n_processed, bwt_gpu, bwt_gpu2, w.seqs);
     extension_time[0].gpuseed += (realtime() - gpuseed);
-    mem_print_gpu(w.gpu_results, n);
+    //mem_print_gpu(w.gpu_results, n);
 
     kt_for(opt->n_threads, worker1, &w, /*(opt->flag & MEM_F_PE) ? n >> 1 : */n); // find mapping positions
     
