@@ -263,7 +263,22 @@ __global__ void locate_seeds_gpu(uint32_t *seed_ref_pos_fow_rev_gpu, bwt_t_gpu b
         	}
 			//printf("SA after: %lu\n",sa_idx);
         	seed_ref_pos_fow_rev_gpu[tid] = bwt.sa[sa_idx/bwt.sa_intv] + itr;
-			//printf("Seed ref pos: %lu\n",seed_ref_pos_fow_rev_gpu[tid]);
+        return;
+
+}
+
+__global__ void transform_seeds_gpu(uint32_t *seed_ref_pos_fow_rev_gpu, bwt_t_gpu bwt, uint32_t n_seeds_sum_fow_rev, int2 *final_seed_read_pos_fow_rev) {
+
+        int tid = (blockIdx.x*blockDim.x) + threadIdx.x;
+        if (tid >= n_seeds_sum_fow_rev) return;
+		//printf("[tid: %d] Query pos [%d - %d]\n", tid, final_seed_read_pos_fow_rev[tid].x, final_seed_read_pos_fow_rev[tid].y);
+		if (((uint32_t)final_seed_read_pos_fow_rev[tid].y) >> 31 == 1) {
+			//printf("[tid: ] Seed pos [%d - %d], %lu\n", (final_seed_read_pos_fow_rev[tid].x << 1 >> 1),(final_seed_read_pos_fow_rev[tid].y << 1 >> 1), 2 * bwt.seq_len - seed_ref_pos_fow_rev_gpu[tid] - ((final_seed_read_pos_fow_rev[tid].y << 1 >> 1) - (final_seed_read_pos_fow_rev[tid].x << 1 >> 1)));
+			seed_ref_pos_fow_rev_gpu[tid] = 2 * bwt.seq_len - seed_ref_pos_fow_rev_gpu[tid] - ((final_seed_read_pos_fow_rev[tid].y << 1 >> 1) - (final_seed_read_pos_fow_rev[tid].x << 1 >> 1));
+		}
+		else {
+			//printf("[tid: ] Seed pos 2[%d - %d], %lu\n", (final_seed_read_pos_fow_rev[tid].x << 1 >> 1),(final_seed_read_pos_fow_rev[tid].y << 1 >> 1), seed_ref_pos_fow_rev_gpu[tid]);
+		}
         return;
 
 }
@@ -946,6 +961,8 @@ bwt_t_gpu gpu_cpy_wrapper(bwt_t_gpu *bwt){
 	gpuErrchk(cudaMalloc(&(bwt_gpu.sa), bwt->n_sa*sizeof(bwtint_t_gpu)));
 	gpuErrchk(cudaMemcpy(bwt_gpu.bwt, bwt->bwt, bwt->bwt_size*sizeof(uint32_t),cudaMemcpyHostToDevice));
     gpuErrchk(cudaMemcpy(bwt_gpu.sa, bwt->sa, bwt->n_sa*sizeof(bwtint_t_gpu),cudaMemcpyHostToDevice));
+	//gpuErrchk(cudaMemcpyAsync(bwt_gpu.bwt, bwt->bwt, bwt->bwt_size*sizeof(uint32_t),cudaMemcpyHostToDevice, stream1));
+    //gpuErrchk(cudaMemcpyAsync(bwt_gpu.sa, bwt->sa, bwt->n_sa*sizeof(bwtint_t_gpu),cudaMemcpyHostToDevice, stream2));
     bwt_gpu.primary = bwt->primary;
     bwt_gpu.seq_len = bwt->seq_len;
     bwt_gpu.sa_intv = bwt->sa_intv;
@@ -1370,11 +1387,12 @@ mem_seed_v *seed_gpu(const char *read_file_name, int n_reads, int64_t n_processe
 
 		if (is_smem) {
 			//locate_seeds_gpu_wrapper<<<1, 1, 0, stream_pipeline>>>(seed_read_pos_fow_rev_compact_gpu, seed_sa_idx_fow_rev_gpu, n_seeds_fow_rev_scan, seed_intervals_fow_rev_gpu, seed_read_pos_fow_rev_gpu, n_smems_sum_fow_rev_gpu, n_seeds_sum_fow_rev_gpu, bwt_gpu);
-			int BLOCKDIM_s =128;
+			int BLOCKDIM_s = 128;
 			int N_BLOCKS_s = (n_smems_sum_fow_rev*THREADS_PER_SMEM  + BLOCKDIM_s - 1)/BLOCKDIM_s;
 			seeds_to_threads<<<N_BLOCKS_s, BLOCKDIM_s, 0, stream_pipeline>>>(seed_read_pos_fow_rev_compact_gpu, seed_sa_idx_fow_rev_gpu, n_seeds_fow_rev_scan, seed_intervals_fow_rev_gpu, seed_read_pos_fow_rev_gpu, n_smems_sum_fow_rev, n_seeds_sum_fow_rev);
 			N_BLOCKS_s = (n_seeds_sum_fow_rev  + BLOCKDIM_s - 1)/BLOCKDIM_s;
-			locate_seeds_gpu<<<N_BLOCKS_s, BLOCKDIM_s, 0, stream_pipeline>>>(seed_sa_idx_fow_rev_gpu, bwt_gpu, n_seeds_sum_fow_rev);			
+			locate_seeds_gpu<<<N_BLOCKS_s, BLOCKDIM_s, 0, stream_pipeline>>>(seed_sa_idx_fow_rev_gpu, bwt_gpu, n_seeds_sum_fow_rev);
+			transform_seeds_gpu<<<N_BLOCKS_s, BLOCKDIM_s, 0, stream_pipeline>>>(seed_sa_idx_fow_rev_gpu, bwt_gpu, n_seeds_sum_fow_rev, seed_read_pos_fow_rev_compact_gpu);
 
 			final_seed_read_pos_fow_rev_gpu = seed_read_pos_fow_rev_compact_gpu;
 			seed_ref_pos_fow_rev_gpu = seed_sa_idx_fow_rev_gpu;
@@ -1414,7 +1432,6 @@ mem_seed_v *seed_gpu(const char *read_file_name, int n_reads, int64_t n_processe
 
 		cudaMemcpyAsync(seed_ref_pos_fow_rev, seed_ref_pos_fow_rev_gpu, n_seeds_sum_fow_rev*sizeof(uint32_t), cudaMemcpyDeviceToHost, stream_pipeline);
 		cudaMemcpyAsync(seed_read_pos_fow_rev, final_seed_read_pos_fow_rev_gpu, n_seeds_sum_fow_rev*sizeof(int2), cudaMemcpyDeviceToHost, stream_pipeline);
-
 		cudaMemcpyAsync(n_ref_pos_fow_rev, n_ref_pos_fow_rev_gpu, total_reads*sizeof(uint32_t), cudaMemcpyDeviceToHost, stream_pipeline);
 
 		mem_time1 = (realtime_gpu() - mem_time1);
@@ -1469,11 +1486,11 @@ mem_seed_v *seed_gpu(const char *read_file_name, int n_reads, int64_t n_processe
 		//Seed per read counter for malloc
 		//if (!itteration)
 		//printf("Total reads: %d\n",total_reads);
-		nvtxRangePushA("GPUSeedResults");
-		//counter = (int*)calloc(total_reads,sizeof(int));
 		//else
 		//fprintf(stderr,"Total reads: %d, Reads_processed: %d\n",total_reads, reads_processed);
 		
+		nvtxRangePushA("GPUSeedResults");
+
 		int i, j , k;
 		int total_n_ref_pos_fow_rev = 0;
 		char sign[2] = {'+', '-'};
@@ -1487,17 +1504,9 @@ mem_seed_v *seed_gpu(const char *read_file_name, int n_reads, int64_t n_processe
 			total_n_ref_pos_fow_rev += n_ref_pos_fow_rev[i];
 			int prev_seed_begin = -1, prev_seed_end = -1;
 			for (y = 0;  y < n_ref_pos_fow_rev[i] && j < n_seeds_sum_fow_rev; j++, y++) {
-				if (((uint32_t)seed_read_pos_fow_rev[j].y) >> 31 == 1){
-					seed_pos = 2 * bwt->seq_len - seed_ref_pos_fow_rev[j] - ((seed_read_pos_fow_rev[j].y << 1 >> 1) - (seed_read_pos_fow_rev[j].x << 1 >> 1));
-					gpu_results[k].a[y].rbeg = seed_pos;
-					gpu_results[k].a[y].qbeg = (seed_read_pos_fow_rev[j].x << 1 >> 1);
-					gpu_results[k].a[y].len = gpu_results[k].a[y].score =((seed_read_pos_fow_rev[j].y << 1 >> 1) - (seed_read_pos_fow_rev[j].x << 1 >> 1));
-				}
-				else {
-					gpu_results[k].a[y].rbeg = seed_ref_pos_fow_rev[j];
-					gpu_results[k].a[y].qbeg = (seed_read_pos_fow_rev[j].x << 1 >> 1);
-					gpu_results[k].a[y].len = gpu_results[k].a[y].score =((seed_read_pos_fow_rev[j].y << 1 >> 1) - (seed_read_pos_fow_rev[j].x << 1 >> 1));
-				}
+				gpu_results[k].a[y].rbeg = seed_ref_pos_fow_rev[j];
+				gpu_results[k].a[y].qbeg = (seed_read_pos_fow_rev[j].x << 1 >> 1);
+				gpu_results[k].a[y].len = gpu_results[k].a[y].score =((seed_read_pos_fow_rev[j].y << 1 >> 1) - (seed_read_pos_fow_rev[j].x << 1 >> 1));
 				prev_seed_begin = seed_read_pos_fow_rev[j].x;
 				prev_seed_end = (seed_read_pos_fow_rev[j].y);
 			}
