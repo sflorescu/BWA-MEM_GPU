@@ -153,6 +153,8 @@ typedef struct{
 	double chain_preprocess;
 
 	double gpuseed;
+	double aux_bwa_mem;
+	double gpuseed_memalloc_memcpy;
 }time_struct;
 
 #endif

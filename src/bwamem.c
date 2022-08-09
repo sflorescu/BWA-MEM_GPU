@@ -28,7 +28,7 @@
 extern "C" {
 #endif
 
-mem_seed_v *seed_gpu(const char *read_file_name, int n_reads, int64_t n_processed, bwt_t_gpu *bwt, bwt_t_gpu bwt_gpu, bseq1_t *seqs);
+mem_seed_v_gpu *seed_gpu(gpuseed_storage_vector *gpuseed_data, int n_reads, int64_t n_processed, bseq1_t *seqs);
 
 #ifdef __cplusplus
 }
@@ -183,7 +183,7 @@ typedef struct {
     smem_aux_t **aux;
     bseq1_t *seqs;
     mem_alnreg_v *regs;
-    mem_seed_v *gpu_results;
+    mem_seed_v_gpu *gpu_results;
     int64_t n_processed;
 	int n_reads;
 	char *read_file;
@@ -394,28 +394,14 @@ kv_push(bwtintv_t, a->mem, a->mem1.a[i]);
 ks_introsort(mem_intv, a->mem.n, a->mem.a);
 }*/
 
-void mem_print_gpu(mem_seed_v *data, int n_reads)
-{
+void mem_print_gpu(mem_seed_v_gpu *data, int n_reads) {
 		for (int i = 0; i < n_reads; i++)
 		{
-			fprintf(stderr,"=====> Printing SMEM(s) in read '%d' Total : %d<=====\n", i+1, data[i].seed_counter);
-			for (int j = 0; j < data[i].seed_counter; j++)
-			{
-				fprintf(stderr,"[GPUSeed Host] Read[%d, %d] -> %lu\n",data[i].a[j].qbeg,(data[i].a[j].qbeg)+(data[i].a[j].len),data[i].a[j].rbeg);
+			printf("=====> Printing SMEM(s) in read '%d' Total : %d (Accum: %d)<=====\n", i+1, data->n_ref_pos_fow_rev_results[i], data->n_ref_pos_fow_rev_prefix_sums[i]);
+			for (int j = 0; j < data->n_ref_pos_fow_rev_results[i]; j++){
+			printf("[GPUSeed Host] Read[%d, %d] -> %lu\n",data->qbeg[j + data->n_ref_pos_fow_rev_prefix_sums[i]].x,data->qbeg[j + data->n_ref_pos_fow_rev_prefix_sums[i]].y,data->rbeg[j + data->n_ref_pos_fow_rev_prefix_sums[i]]);
 			}
 		}
-}
-
-static void mem_collect_intv_gpu(void *data, const char *read_file, int n_reads, int64_t n_processed, bwt_t_gpu *bwt_gpu)
-{
-    double gpuseed_time;
-    worker_t *w = (worker_t*)data;
-	//printf("=====> Calling GPUSeed \n");
-    //gpuseed_time = realtime();
-	//w->gpu_results = seed_gpu(read_file, n_reads, n_processed, bwt_gpu);
-    //extension_time[0]->gpuseed += (realtime() - gpuseed_time);
-	//printf("=====> BAck from Calling GPUSeed \n");
-	//if (bwa_verbose >= 4) mem_print_gpu(w->gpu_results, w->n_reads);
 }
 
 /************
@@ -508,47 +494,36 @@ void mem_print_chain(const bntseq_t *bns, mem_chain_v *chn) {
 	}
 }
 
-mem_chain_v mem_chain(const mem_opt_t *opt, const bwt_t *bwt, const bntseq_t *bns, int len, const uint8_t *seq, mem_seed_v gpu_results)
+mem_chain_v mem_chain(const mem_opt_t *opt, const bwt_t *bwt, const bntseq_t *bns, int len, const uint8_t *seq, mem_seed_v_gpu *gpu_results, int j)
 {
 	int i, b, e, l_rep;
 	int64_t l_pac = bns->l_pac;
 	mem_chain_v chain;
 	kbtree_t(chn) *tree;
-	//smem_aux_t *aux;
-
-	//printf("Value: %ld\n",gpu_results->a[0].rbeg);
-	//printf("Working on read: %d\n",read_id);
-
-	kv_init(chain);
-	if (len < opt->min_seed_len) return chain; // if the query is shorter than the seed length, no match
+    kv_init(chain);
+	
+    if (len < opt->min_seed_len) return chain; // if the query is shorter than the seed length, no match
 	tree = kb_init(chn, KB_DEFAULT_SIZE);
-	bwtint_t x2 = 1;
-	//aux = buf? (smem_aux_t*)buf : smem_aux_init();
-	//mem_collect_intv(opt, bwt, len, seq, aux, argc, argv);
-	for (i = 0, b = e = l_rep = 0; i < gpu_results.seed_counter; ++i) { // compute frac_rep
-		//bwtintv_t *p = &aux->mem.a[i];
-		int sb = gpu_results.a[i].qbeg, se = gpu_results.a[i].qbeg + gpu_results.a[i].len;
-		//if (p->x[2] <= opt->max_occ) continue;
-		if (x2 <= opt->max_occ) continue;
+	
+    for (i = 0, b = e = l_rep = 0; i < gpu_results->n_ref_pos_fow_rev_results[j]; i+=gpu_results->score[i + gpu_results->n_ref_pos_fow_rev_prefix_sums[j]]) { // compute frac_rep
+        int sb = gpu_results->qbeg[i + gpu_results->n_ref_pos_fow_rev_prefix_sums[j]].x, se = gpu_results->qbeg[i + gpu_results->n_ref_pos_fow_rev_prefix_sums[j]].y;
+		if (gpu_results->score[i + gpu_results->n_ref_pos_fow_rev_prefix_sums[j]] <= opt->max_occ) continue;
 		if (sb > e) l_rep += e - b, b = sb, e = se;
 		else e = e > se? e : se;
 	}
 	l_rep += e - b;
-
-	for (i = 0; i < gpu_results.seed_counter; ++i) {
-		//bwtintv_t *p = &aux->mem.a[i];
-		int step, count, slen = (uint32_t)gpu_results.a[i].len; // seed length
+	for (i = 0; i < gpu_results->n_ref_pos_fow_rev_results[j]; i+=gpu_results->score[i + gpu_results->n_ref_pos_fow_rev_prefix_sums[j]]) {
+        int step, count, slen = (uint32_t)(gpu_results->qbeg[i + gpu_results->n_ref_pos_fow_rev_prefix_sums[j]].y - gpu_results->qbeg[i + gpu_results->n_ref_pos_fow_rev_prefix_sums[j]].x); // seed length
 		int64_t k;
 		// if (slen < opt->min_seed_len) continue; // ignore if too short or too repetitive
-		step = x2 > opt->max_occ? x2 / opt->max_occ : 1;
-		for (k = count = 0; k < x2 && count < opt->max_occ; k += step, ++count) {
+		step = gpu_results->score[i + gpu_results->n_ref_pos_fow_rev_prefix_sums[j]] > opt->max_occ? gpu_results->score[i + gpu_results->n_ref_pos_fow_rev_prefix_sums[j]] / opt->max_occ : 1;
+		for (k = count = 0; k < gpu_results->score[i + gpu_results->n_ref_pos_fow_rev_prefix_sums[j]] && count < opt->max_occ; k += step, ++count) {
 			mem_chain_t tmp, *lower, *upper;
 			mem_seed_t s;
 			int rid, to_add = 0;
-			//s.rbeg = tmp.pos = bwt_sa(bwt, p->x[0] + k); // this is the base coordinate in the forward-reverse reference
-			s.rbeg = tmp.pos = gpu_results.a[i].rbeg;
-			//printf("S.rbeq[%d]: %lu\n",i,s.rbeg);
-			s.qbeg = gpu_results.a[i].qbeg;
+			s.rbeg = tmp.pos = gpu_results->rbeg[i + k + gpu_results->n_ref_pos_fow_rev_prefix_sums[j]];
+            //printf("Seed: %d out of %lu seeds,Rbeg %ld\n", i,gpu_results->n_ref_pos_fow_rev_results[j] ,s.rbeg);
+			s.qbeg = gpu_results->qbeg[i + gpu_results->n_ref_pos_fow_rev_prefix_sums[j]].x;
 			s.score = s.len = slen;
 			rid = bns_intv2rid(bns, s.rbeg, s.rbeg + s.len);
 			if (rid < 0) continue; // bridging multiple reference sequences or the forward-reverse boundary; TODO: split the seed; don't discard it!!!
@@ -577,17 +552,17 @@ mem_chain_v mem_chain(const mem_opt_t *opt, const bwt_t *bwt, const bntseq_t *bn
 	for (i = 0; i < chain.n; ++i) chain.a[i].frac_rep = (float)l_rep / len;
 	if (bwa_verbose >= 4) printf("* fraction of repetitive seeds: %.3f\n", (float)l_rep / len);
 
-	//printf("Number of chains %ld \n",chain.n);
-	/*for (int i = 0; i < chain.n; i++){
+	/*printf("Number of chains %ld \n",chain.n);
+	for (int i = 0; i < chain.n; i++){
 		mem_chain_t *p = &chain.a[i];
-		//printf("Number of seeds in chain %d \n",p->n);
+		printf("Number of seeds in chain %d \n",p->n);
 		for (int j = 0; j < p->n; ++j){
 			mem_seed_t *s = &p->seeds[j];
          	printf("[BWA-MEM] Read[%d, %d] -> %ld\n",s->qbeg,(s->qbeg)+(s->len),s->rbeg);
 		}
 		
 		//int slen = (uint32_t)p->info - (p->info>>32); // seed length
-		//
+		
 	}*/
 
 	kb_destroy(chn, tree);
@@ -2033,7 +2008,7 @@ typedef struct {
 } metadata_gpu_batch_t ;
 
 //void mem_align1_core(const mem_opt_t *opt, const bwt_t *bwt, const bntseq_t *bns, const uint8_t *pac, bseq1_t *seq, int batch_size, int batch_start_idx, mem_alnreg_v *w_regs, int tid, gasal_gpu_storage_v *gpu_storage_vec, const char *read_file, int n_reads, int64_t n_processed, bwt_t_gpu *bwt_gpu, bwt_t_gpu bwt_gpu2) {
-void mem_align1_core(const mem_opt_t *opt, const bwt_t *bwt, const bntseq_t *bns, const uint8_t *pac, bseq1_t *seq, int batch_size, int batch_start_idx, mem_alnreg_v *w_regs, int tid, gasal_gpu_storage_v *gpu_storage_vec, mem_seed_v *gpu_results) {
+void mem_align1_core(const mem_opt_t *opt, const bwt_t *bwt, const bntseq_t *bns, const uint8_t *pac, bseq1_t *seq, int batch_size, int batch_start_idx, mem_alnreg_v *w_regs, int tid, gasal_gpu_storage_v *gpu_storage_vec, mem_seed_v_gpu *gpu_results) {
     int j,  r;
     extern time_struct *extension_time;
     extern uint64_t *no_of_extensions;
@@ -2172,7 +2147,7 @@ void mem_align1_core(const mem_opt_t *opt, const bwt_t *bwt, const bntseq_t *bns
                 time_mem_chain = realtime();
                 PUSH_RANGE("mem_chaining",1)
                 //if (batch_start_idx == 0) {
-                    chn = mem_chain(opt, bwt, bns, seq[j].l_seq, (uint8_t*)(read_seq), gpu_results[j]);
+                    chn = mem_chain(opt, bwt, bns, seq[j].l_seq, (uint8_t*)(read_seq), gpu_results, j);
                 //}
                 //else {
                     //chn = mem_chain(opt, bwt, bns, seq[j].l_seq, (uint8_t*)(read_seq), gpu_results[j-batch_start_idx]);
@@ -2569,20 +2544,20 @@ static void worker2(void *data, int i, int tid, int batch_size, int n_reads, gas
     worker_t *w = (worker_t*) data;
     if (!(w->opt->flag & MEM_F_PE)) {
         if (bwa_verbose >= 4)
-            printf("=====> Finalizing read '%s' <=====\n", w->seqs[i].name);
+            printf("=====> Finalizing read 1'%s' <=====\n", w->seqs[i].name);
         mem_mark_primary_se(w->opt, w->regs[i].n, w->regs[i].a, w->n_processed + i);
         mem_reg2sam(w->opt, w->bns, w->pac, &w->seqs[i], &w->regs[i], 0, 0);
         free(w->regs[i].a);
     } else {
         if (bwa_verbose >= 4)
-            printf("=====> Finalizing read pair '%s' <=====\n", w->seqs[i << 1 | 0].name);
+            printf("=====> Finalizing read pair 2 '%s' <=====\n", w->seqs[i << 1 | 0].name);
         mem_sam_pe(w->opt, w->bns, w->pac, w->pes, (w->n_processed >> 1) + i, &w->seqs[i << 1], &w->regs[i << 1]);
         free(w->regs[i << 1 | 0].a);
         free(w->regs[i << 1 | 1].a);
     }
 }
 
-void mem_process_seqs(const mem_opt_t *opt, const bwt_t *bwt, const bntseq_t *bns, const uint8_t *pac, int64_t n_processed, int n, bseq1_t *seqs, const mem_pestat_t *pes0, char *read_file, bwt_t_gpu *bwt_gpu, bwt_t_gpu bwt_gpu2) {
+void mem_process_seqs(const mem_opt_t *opt, const bwt_t *bwt, const bntseq_t *bns, const uint8_t *pac, int64_t n_processed, int n, bseq1_t *seqs, const mem_pestat_t *pes0, gpuseed_storage_vector *gpuseed_data) {
     worker_t w;
     mem_pestat_t pes[4];
     extern time_struct *extension_time;
@@ -2601,23 +2576,26 @@ void mem_process_seqs(const mem_opt_t *opt, const bwt_t *bwt, const bntseq_t *bn
     w.seqs = seqs;
     w.n_processed = n_processed;
     w.pes = &pes[0];
-    w.bwt_gpu = bwt_gpu;
-    w.bwt_gpu2 = bwt_gpu2;
- 
-	w.gpu_results = calloc(n, sizeof(mem_seed_v));
-    w.read_file = read_file;
-	w.n_reads = n;
+    w.n_reads = n;
 
     //fprintf(stderr,"Seq details l: %d %s\n", w.seqs[0].l_seq, w.seqs[0].seq);
+	//fprintf(stderr, "[BWAMEM 1] File bytes skip %llu\n", gpuseed_data->file_bytes_skip);
 
-    double gpuseed;
-    gpuseed = realtime();
-    w.gpu_results = seed_gpu(read_file, n, n_processed, bwt_gpu, bwt_gpu2, w.seqs);
+    double gpuseed = realtime();
+    w.gpu_results = seed_gpu(gpuseed_data, n, n_processed, w.seqs);
     extension_time[0].gpuseed += (realtime() - gpuseed);
+    gpuseed_data->file_bytes_skip += w.gpu_results->file_bytes_skip;
+    //double time_g = realtime() - gpuseed;
+	//fprintf(stderr, "[BWAMEM 2] File bytes skip %llu\n", gpuseed_data->file_bytes_skip);
     //mem_print_gpu(w.gpu_results, n);
 
     kt_for(opt->n_threads, worker1, &w, /*(opt->flag & MEM_F_PE) ? n >> 1 : */n); // find mapping positions
     
+    free(w.gpu_results->rbeg);
+    free(w.gpu_results->qbeg);
+    free(w.gpu_results->score);
+    free(w.gpu_results->n_ref_pos_fow_rev_results);
+    free(w.gpu_results->n_ref_pos_fow_rev_prefix_sums);
     free(w.gpu_results);
     
     double min_exit_time = load_balance_waste_time[0];
@@ -2635,7 +2613,9 @@ void mem_process_seqs(const mem_opt_t *opt, const bwt_t *bwt, const bntseq_t *bn
         else
             mem_pestat(opt, bns->l_pac, n, w.regs, pes); // otherwise, infer the insert size distribution from data
     }
+    
     kt_for(opt->n_threads, worker2, &w, (opt->flag & MEM_F_PE) ? n >> 1 : n); // generate alignment
+    
     /*
         min_exit_time = load_balance_waste_time[0];
         max_exit_time = load_balance_waste_time[0];

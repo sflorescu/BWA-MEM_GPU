@@ -32,15 +32,13 @@ typedef struct {
 	int64_t n_processed;
 	int copy_comment, actual_chunk_size;
 	bwaidx_t *idx;
-	char *read_file;
-	bwt_t_gpu *bwt;
-	bwt_t_gpu bwt_gpu;
+	gpuseed_storage_vector *gpuseed_data;
 } ktp_aux_t;
 
 typedef struct {
 	ktp_aux_t *aux;
 	int n_seqs;
-	bseq1_t *seqs;
+	bseq1_t *seqs;		
 } ktp_data_t;
 
 static void *process(void *shared, int step, void *_data)
@@ -78,19 +76,20 @@ static void *process(void *shared, int step, void *_data)
 				fprintf(stderr, "[M::%s] %d single-end sequences; %d paired-end sequences\n", __func__, n_sep[0], n_sep[1]);
 			if (n_sep[0]) {
 				tmp_opt.flag &= ~MEM_F_PE;
-				mem_process_seqs(&tmp_opt, idx->bwt, idx->bns, idx->pac, aux->n_processed, n_sep[0], sep[0], 0, aux->read_file, aux->bwt, aux->bwt_gpu);
+				mem_process_seqs(&tmp_opt, idx->bwt, idx->bns, idx->pac, aux->n_processed, n_sep[0], sep[0], 0, aux->gpuseed_data);
 				for (i = 0; i < n_sep[0]; ++i)
 					data->seqs[sep[0][i].id].sam = sep[0][i].sam;
 			}
 			if (n_sep[1]) {
 				tmp_opt.flag |= MEM_F_PE;
-				mem_process_seqs(&tmp_opt, idx->bwt, idx->bns, idx->pac, aux->n_processed + n_sep[0], n_sep[1], sep[1], aux->pes0, aux->read_file, aux->bwt, aux->bwt_gpu);
+				mem_process_seqs(&tmp_opt, idx->bwt, idx->bns, idx->pac, aux->n_processed + n_sep[0], n_sep[1], sep[1], aux->pes0, aux->gpuseed_data);
 				for (i = 0; i < n_sep[1]; ++i)
 					data->seqs[sep[1][i].id].sam = sep[1][i].sam;
 			}
 			free(sep[0]); free(sep[1]);
-		} else mem_process_seqs(opt, idx->bwt, idx->bns, idx->pac, aux->n_processed, data->n_seqs, data->seqs, aux->pes0, aux->read_file, aux->bwt, aux->bwt_gpu);
+		} else mem_process_seqs(opt, idx->bwt, idx->bns, idx->pac, aux->n_processed, data->n_seqs, data->seqs, aux->pes0, aux->gpuseed_data);
 		aux->n_processed += data->n_seqs;
+		//fprintf(stderr, "[FASTMAP] File bytes skip %llu\n", aux->gpuseed_data->file_bytes_skip);
 		return data;
 	} else if (step == 2) {
 		for (i = 0; i < data->n_seqs; ++i) {
@@ -139,6 +138,9 @@ int gase_aln(int argc, char *argv[])
 	mem_pestat_t pes[4];
 	ktp_aux_t aux;
 	extern time_struct *extension_time;
+
+	//double aux_bwa_time = realtime();
+
 	//run_exec_time = "run_exec_time.txt";
 	sprintf(run_exec_time, "run_exec_time.txt");
 	memset(&aux, 0, sizeof(ktp_aux_t));
@@ -364,6 +366,8 @@ int gase_aln(int argc, char *argv[])
 	} else update_a(opt, &opt0);
 	bwa_fill_scmat(opt->a, opt->b, opt->mat);
 
+	double aux_bwa_time = realtime();
+
 	aux.idx = bwa_idx_load_from_shm(argv[optind]);
 	if (aux.idx == 0) {
 		if ((aux.idx = bwa_idx_load(argv[optind], BWA_IDX_ALL)) == 0) return 1; // FIXME: memory leak
@@ -411,6 +415,8 @@ int gase_aln(int argc, char *argv[])
 	args->algo = KSW;
 	args->start_pos = WITHOUT_START;
 
+	extension_time[0].aux_bwa_mem += (realtime() - aux_bwa_time);
+
 	double time_extend = realtime();
     
     // J.L. 2019-02-14 16:26 create twice as many gasal_gpu_storage_v (vectors of stream): one for "short" ends, one for "long" ends (each of them having 2 streams) (and also delete all of them, see below destructor)
@@ -436,8 +442,8 @@ int gase_aln(int argc, char *argv[])
 		// working values : 205, 2, 1000, 152, 300
 		// working values : 120, 3, 1000, 152, 300 
 		// note that these values are not strict anymore because all fields can be extended.
-		int Coef = 120; // avg number of seeds per sequence  //FIXME: 2 or less makes weird target_lengths
-		int Coef2 = 3;
+		int Coef = 205; // avg number of seeds per sequence  //FIXME: 2 or less makes weird target_lengths
+		int Coef2 = 2;
 		int NbrOfSeqs = 1000;
 		int ReadLength = 152; // max is 152, mean is 152/2, taking a margin.
 		int RefLength = 300; // max is ~300, mean is 300/2, taking a margin. 
@@ -467,18 +473,30 @@ int gase_aln(int argc, char *argv[])
 	//There is no new line at the end so more values may be printed on the same line, if desired.
 	 fprintf(f_exec_time_metadata,"%d\t%d\t%d\t%d\t%d\t%d\t",opt->n_threads, opt->read_len, opt->seed_type, opt->min_seed_len, opt->seed_intv, opt->dp_type);
 
-	aux.read_file = argv[optind + 1];
-	char *prefix = argv[6];
-	char *str = (char*)calloc(strlen(prefix) + 10, 1);
-	strcpy(str, prefix); strcat(str, ".gpu.bwt");
-	aux.bwt= bwt_restore_bwt_gpu(str);
+	double gpuseed_memalloc_memcpy = realtime();
+	
+    aux.gpuseed_data =  (gpuseed_storage_vector*)calloc(1, sizeof(gpuseed_storage_vector));
+
+	aux.gpuseed_data->query_file = argv[optind];
+	aux.gpuseed_data->read_file = argv[optind + 1];
+	aux.gpuseed_data->file_bytes_skip = 0;
+	aux.gpuseed_data->min_seed_size = opt->min_seed_len;
+	opt->re_seed ? aux.gpuseed_data->is_smem = 0 : aux.gpuseed_data->is_smem = 1;
+	
+	char *str = (char*)calloc(strlen(aux.gpuseed_data->query_file) + 10, 1);
+	strcpy(str, aux.gpuseed_data->query_file); strcat(str, ".bwt");
+	aux.gpuseed_data->bwt = bwt_restore_bwt_gpu(str);
 	free(str);
-	str = (char*)calloc(strlen(prefix) + 10, 1);
-	strcpy(str, prefix); strcat(str, ".gpu.sa");
-	bwt_restore_sa_gpu(str, aux.bwt);
+	str = (char*)calloc(strlen(aux.gpuseed_data->query_file) + 10, 1);
+	strcpy(str, aux.gpuseed_data->query_file); strcat(str, ".upper.sa");
+	bwt_restore_sa_gpu(str, aux.gpuseed_data->bwt);
 	free(str);
 
-	aux.bwt_gpu = gpu_cpy_wrapper(aux.bwt);
+	aux.gpuseed_data->bwt_gpu = gpu_cpy_wrapper(aux.gpuseed_data->bwt);
+	aux.gpuseed_data->pre_calc_seed_len = 13;
+	aux.gpuseed_data->pre_calc_seed_intervals_flag = 0;
+
+	extension_time[0].gpuseed_memalloc_memcpy += (realtime() - gpuseed_memalloc_memcpy);
 
 	bwa_print_sam_hdr(aux.idx->bns, hdr_line);
 	aux.actual_chunk_size = fixed_chunk_size > 0? fixed_chunk_size : opt->chunk_size * opt->n_threads;
@@ -491,11 +509,12 @@ int gase_aln(int argc, char *argv[])
 		gasal_destroy_gpu_storage_v(&(gpu_storage_vec_arr[z]));
 	}
 	free(gpu_storage_vec_arr);
-	free_bwt_gpu(aux.bwt_gpu);
+	free_gpuseed_data(aux.gpuseed_data);
+	free(aux.gpuseed_data);
 	extension_time[0].gpu_mem_free += (realtime() - time_extend);
+	//aux_bwa_time = realtime();
 	free(hdr_line);
 	free(opt);
-	bwt_destroy_gpu(aux.bwt);
 	bwa_idx_destroy(aux.idx);
 	kseq_destroy(aux.ks);
 	err_gzclose(fp); kclose(ko);
@@ -503,6 +522,7 @@ int gase_aln(int argc, char *argv[])
 		kseq_destroy(aux.ks2);
 		err_gzclose(fp2); kclose(ko2);
 	}
+	//extension_time[0].aux_bwa_mem += (realtime() - aux_bwa_time);
 	return 0;
 }
 

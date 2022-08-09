@@ -157,6 +157,8 @@ int main(int argc, char *argv[])
 			fprintf(stderr, "Total time spent in extension in gpu by thread %d (excluding mem_alloc and mem_free)= %.3f seconds\n", i, extension_time[i].aln_kernel + extension_time[i].get_results_actual + extension_time[i].get_results_wasted);
 			total_extension_time += (extension_time[i].aln_kernel + extension_time[i].get_results_actual + extension_time[i].get_results_wasted);
 		}
+		fprintf(stderr, "Total time spent in Aux Ops of BWA-MEM= %.3f seconds\n", i, extension_time[0].aux_bwa_mem);
+		fprintf(stderr, "Total time spent in GPUSeed mem_alloc and memcpy = %.3f seconds\n", i, extension_time[0].gpuseed_memalloc_memcpy);
 		fprintf(stderr, "Total time spent in gpu_mem_alloc= %.3f seconds\n", extension_time[0].gpu_mem_alloc);
 		fprintf(stderr, "Total time spent in gpu_mem_free = %.3f seconds\n", extension_time[0].gpu_mem_free);
 		//total_extension_time += (extension_time[0].gpu_mem_alloc + extension_time[0].gpu_mem_free);

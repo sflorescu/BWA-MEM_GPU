@@ -257,13 +257,14 @@ int bwa_idx_build(const char *fa, const char *prefix, int algo_type, int block_s
 {
 	extern void bwa_pac_rev_core(const char *fn, const char *fn_rev);
 
-	char *str, *str2, *str3;
+	char *str, *str2, *str3, *str4;
 	clock_t t;
 	int64_t l_pac;
 
 	str  = (char*)calloc(strlen(prefix) + 10, 1);
 	str2 = (char*)calloc(strlen(prefix) + 10, 1);
 	str3 = (char*)calloc(strlen(prefix) + 10, 1);
+	str4 = (char*)calloc(strlen(prefix) + 10, 1);
 
 	{ // nucleotide indexing
 		gzFile fp = xzopen(fa, "r");
@@ -309,16 +310,24 @@ int bwa_idx_build(const char *fa, const char *prefix, int algo_type, int block_s
 	}
 	{
 		bwt_t *bwt;
+		bwt_t2 *bwt2;
 		strcpy(str, prefix); strcat(str, ".bwt");
 		strcpy(str3, prefix); strcat(str3, ".sa");
+		strcpy(str4, prefix); strcat(str4, ".upper.sa");
+
 		t = clock();
 		if (bwa_verbose >= 3) fprintf(stderr, "[bwa_index] Construct SA from BWT and Occ... ");
 		bwt = bwt_restore_bwt(str);
-		bwt_cal_sa(bwt, 32);
+		bwt2 = bwt_restore_bwt2(str);
+		bwt_cal_sa(bwt, 32);	
+		
+		bwt_cal_sa2(bwt2, 16);
 		bwt_dump_sa(str3, bwt);
+		bwt_dump_sa2(str4, bwt2);
 		bwt_destroy(bwt);
+		bwt_destroy2(bwt2);		
 		if (bwa_verbose >= 3) fprintf(stderr, "%.2f sec\n", (float)(clock() - t) / CLOCKS_PER_SEC);
 	}
-	free(str3); free(str2); free(str);
+	free(str4); free(str3); free(str2); free(str);
 	return 0;
 }

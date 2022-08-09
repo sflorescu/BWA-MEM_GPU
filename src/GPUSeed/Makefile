@@ -8,7 +8,7 @@ INCLUDES= $(GPUSEED_INCLUDE_DIR)
 AR=ar
 
 object: makedir
-	nvcc -c --device-c -lineinfo -O3 -std=c++11 -I ./cub/cub -lineinfo -Xcompiler -Wall -Xptxas  -Werror --gpu-architecture=compute_61 --gpu-code=sm_61 --default-stream per-thread --ptxas-options=-v -o $(OBJ_DIR)/seed_gen.o seed_gen.cu
+	nvcc -c --device-c -lineinfo -O3 -std=c++11 -I ./cub/cub -lineinfo -Xcompiler -Wall -Xptxas -Werror --gpu-architecture=compute_61 --gpu-code=sm_61 --default-stream per-thread --ptxas-options=-v -o $(OBJ_DIR)/seed_gen.o seed_gen.cu
 
 libseed.a: object
 		echo $(LOBJS_PATH)

@@ -58,6 +58,24 @@ typedef struct {
 } bwt_t;
 
 typedef struct {
+	bwtint_t primary; // S^{-1}(0), or the primary index of BWT
+	bwtint_t L2[5]; // C(), cumulative count
+	bwtint_t seq_len; // sequence length
+	bwtint_t bwt_size; // size of bwt, about seq_len/4
+	uint32_t *bwt; // BWT
+	// occurance array, separated to two parts
+	uint32_t cnt_table[256];
+	// suffix array
+	int sa_intv;
+	bwtint_t n_sa;
+	uint32_t *sa;
+	uint32_t *sa_bits;
+	uint8_t pack_size;
+	uint32_t pack_mask;
+
+} bwt_t2;
+
+typedef struct {
 	bwtint_t x[3], info;
 	int n_miss_match;
 } bwtintv_t;
@@ -86,21 +104,28 @@ extern "C" {
 
 	void bwt_dump_bwt(const char *fn, const bwt_t *bwt);
 	void bwt_dump_sa(const char *fn, const bwt_t *bwt);
+	void bwt_dump_sa2(const char *fn, const bwt_t2 *bwt);
 
 	bwt_t *bwt_restore_bwt(const char *fn);
+	bwt_t2 *bwt_restore_bwt2(const char *fn);
 	void bwt_restore_sa(const char *fn, bwt_t *bwt);
+	void bwt_restore_sa2(const char *fn, bwt_t2 *bwt);
 
 	void bwt_destroy(bwt_t *bwt);
+	void bwt_destroy2(bwt_t2 *bwt);
 
 	void bwt_bwtgen(const char *fn_pac, const char *fn_bwt); // from BWT-SW
 	void bwt_bwtgen2(const char *fn_pac, const char *fn_bwt, int block_size); // from BWT-SW
 	void bwt_cal_sa(bwt_t *bwt, int intv);
+	void bwt_cal_sa2(bwt_t2 *bwt, int intv);
 
 	void bwt_bwtupdate_core(bwt_t *bwt);
 
 	bwtint_t bwt_occ(const bwt_t *bwt, bwtint_t k, ubyte_t c);
+	bwtint_t bwt_occ2(const bwt_t2 *bwt, bwtint_t k, ubyte_t c);
 	void bwt_occ4(const bwt_t *bwt, bwtint_t k, bwtint_t cnt[4]);
 	bwtint_t bwt_sa(const bwt_t *bwt, bwtint_t k);
+	bwtint_t bwt_sa2(const bwt_t2 *bwt, bwtint_t k);
 
 	// more efficient version of bwt_occ/bwt_occ4 for retrieving two close Occ values
 	void bwt_gen_cnt_table(bwt_t *bwt);
