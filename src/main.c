@@ -129,6 +129,8 @@ int main(int argc, char *argv[])
 		while (no_of_extensions[n_threads] > 0)
 			n_threads++;
 		fprintf(stderr, "n_threads = %d\n", n_threads);
+		fprintf(stderr, "Total time spent in GPUSeed = %.3f seconds\n", i, extension_time[0].gpuseed);
+
 		for (i = 0; i < n_threads; i++) // display for max. 12 threads.
 		{
 			//fprintf(stderr, "Total time spent in host_mem_alloc by thread %d = %.3f seconds\n", i, extension_time[i].host_mem_alloc);
@@ -141,7 +143,6 @@ int main(int argc, char *argv[])
 			fprintf(stderr, "Total time spent in mem_aln1_core by thread %d = %.3f seconds\n", i, extension_time[i].full_mem_aln1_core);
 			fprintf(stderr, "Total time spent in mem_chain2aln by thread %d = %.3f seconds\n", i, extension_time[i].full_mem_chain2aln);
 			*/
-			fprintf(stderr, "Total time spent in GPUSeed by thread %d = %.3f seconds\n", i, extension_time[i].gpuseed);
 			fprintf(stderr, "Total time spent in mem_aln1_core by thread %d = %.3f seconds\n", i, extension_time[i].full_mem_aln1_core);
 			fprintf(stderr, "\tin chain_preprocess by thread %d = %.3f seconds\n", i, extension_time[i].chain_preprocess);
 			fprintf(stderr, "\t\tin mem_chain by thread %d = %.3f seconds\n", i, extension_time[i].time_mem_chain);
@@ -149,6 +150,8 @@ int main(int argc, char *argv[])
 			fprintf(stderr, "\t\tin mem_flt_chained_seeds by thread %d = %.3f seconds\n", i, extension_time[i].time_mem_flt_chained_seeds);
 			fprintf(stderr, "\tin mem_chain2aln by thread %d = %.3f seconds\n", i, extension_time[i].full_mem_chain2aln);
 			fprintf(stderr, "\tin gpu_aln_kernel by thread %d = %.3f seconds\n", i, extension_time[i].aln_kernel);
+			fprintf(stderr, "Total time spent in worker2 by thread = %.3f seconds\n", extension_time[0].worker2_time);
+
 
 			fprintf(stderr, "Total time spent in get_results_actual by thread %d = %.3f seconds\n", i, extension_time[i].get_results_actual);
 			fprintf(stderr, "Total time spent in get_results_wasted by thread %d = %.3f seconds\n", i, extension_time[i].get_results_wasted);

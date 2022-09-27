@@ -11,7 +11,7 @@ GPUSEED_INCLUDE_DIR= ./src/GPUSeed/include/
 #SHD_DIR=./src/shd_filter/
 #CC=clang --analyze
 #
-CFLAGS=-Wall -Wno-unused-function -O2 -msse4.2 -std=c++11 -fpermissive
+CFLAGS=-Wall -Wno-unused-function -O3 -msse4.2 -std=c++11 -fpermissive
 NVCCFLAGS=-lineinfo --gpu-architecture=compute_61 --gpu-code=sm_61 -O3 -Xcompiler -Wall -Xptxas -Werror --default-stream per-thread
 WRAP_MALLOC=-DUSE_MALLOC_WRAPPERS
 AR=ar
@@ -47,9 +47,9 @@ endif
 
 #.SUFFIXES:.c .o .cc .cpp .cu
 %.o: %.c
-	$(CXX) -c $(CFLAGS) $(DFLAGS) $(INCLUDES) $(INCLUDES2) $< -o $(OBJ_DIR)$@
+	$(CXX) -c -g $(CFLAGS) $(DFLAGS) $(INCLUDES) $(INCLUDES2) $< -o $(OBJ_DIR)$@
 %.o: %.cpp
-	$(CXX) -c $(CFLAGS) $(INCLUDES) $(INCLUDES2) $< -o $(OBJ_DIR)$@
+	$(CXX) -c -g $(CFLAGS) $(INCLUDES) $(INCLUDES2) $< -o $(OBJ_DIR)$@
 
 ## toggle for valgrind/nvprof
 ANALYSIS_FILENAME=125k

@@ -278,7 +278,7 @@ bwaidx_t *bwa_idx_load_from_disk(const char *hint, int which)
 		return 0;
 	}
 	idx = calloc(1, sizeof(bwaidx_t));
-	if (which & BWA_IDX_BWT) idx->bwt = bwa_idx_load_bwt(hint);
+	//if (which & BWA_IDX_BWT) idx->bwt = bwa_idx_load_bwt(hint);
 	if (which & BWA_IDX_BNS) {
 		int i, c;
 		idx->bns = bns_restore(prefix);

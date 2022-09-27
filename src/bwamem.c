@@ -28,7 +28,7 @@
 extern "C" {
 #endif
 
-mem_seed_v_gpu *seed_gpu(gpuseed_storage_vector *gpuseed_data, int n_reads, int64_t n_processed, bseq1_t *seqs);
+mem_seed_v_gpu *seed_gpu(gpuseed_storage_vector *gpuseed_data);
 
 #ifdef __cplusplus
 }
@@ -54,7 +54,7 @@ DEBUG4 is all about memory pages for extensible data.
 // SEQ_BATCH_SIZE is the number of sequences taken for each GPU batch. 
 // One sequence has multiple (e.g. 10~30) seeds hence alignments.
 // By default: 1000
-#define SEQ_BATCH_SIZE (1000)
+#define SEQ_BATCH_SIZE (5000)
 
 /* Theory on probability and scoring *ungapped* alignment
  *
@@ -108,8 +108,8 @@ mem_opt_t *mem_opt_init() {
 	o->e_del = o->e_ins = 1;
 	o->w = 300;
 	o->T = 30;
+	//o->zdrop = 30;
 	o->zdrop = 0;
-	//o->zdrop = 0;
 	o->pen_unpaired = 17;
 	o->pen_clip5 = o->pen_clip3 = 5;
 	o->max_mem_intv = 20;
@@ -234,19 +234,7 @@ static void mem_collect_intv(mem_opt_t *opt, const bwt_t *bwt, int len, const ui
 	int split_len = (int) (opt->min_seed_len * opt->split_factor + .499);
 	int min_miss_match = 0;
 	bwt_mem_width_t *w;
-	/*if (opt->seed_type == 4) {
-	  w = calloc(len, sizeof(bwt_mem_width_t));
-	  min_miss_match = bwt_mem_cal_width(bwt, len, seq, w);
-	  }*/
-	//int bowtie_seed_len = 0;
-	//if (opt->seed_type == 1) bowtie_seed_len = 0;
-	//else if (opt->seed_type == 2) bowtie_seed_len = opt->bowtie_seed_len;
-	//else if (opt->seed_type == 3) bowtie_seed_len = 0;
-	//else bowtie_seed_len = 0;
 	a->mem.n = 0;
-	// first pass: find all SMEMs
-	//extern __thread unsigned long int bwt_extend_call_1_local, bwt_extend_call_2_local, bwt_extend_call_3_local, bwt_extend_call_4_local, bwt_extend_call_5_local, bwt_extend_call_6_local;
-	//bwt_extend_call_1_local = 0, bwt_extend_call_2_local = 0, bwt_extend_call_3_local = 0, bwt_extend_call_4_local = 0, bwt_extend_call_5_local = 0, bwt_extend_call_6_local = 0;
 	while (x < len) {
 		if (seq[x] < 4) {
 			if (opt->seed_type == 1) {
@@ -309,90 +297,9 @@ static void mem_collect_intv(mem_opt_t *opt, const bwt_t *bwt, int len, const ui
 			}
 		}
 	}
-	/*for (i = 0; i < a->mem1.n; ++i)
-	  if ((uint32_t)a->mem1.a[i].info - (a->mem1.a[i].info>>32) >= opt->min_seed_len)
-	  kv_push(bwtintv_t, a->mem, a->mem1.a[i]);*/
-	// second pass: find MEMs inside a long SMEM
-	/*old_n = a->mem.n;
-	  for (k = 0; k < old_n; ++k) {
-	  bwtintv_t *p = &a->mem.a[k];
-	  int start = p->info>>32, end = (int32_t)p->info;
-	  if (end - start < split_len || p->x[2] > opt->split_width) continue;
-	  bwt_smem1(bwt, len, seq, (start + end)>>1, p->x[2]+1, &a->mem1, a->tmpv);
-	  for (i = 0; i < a->mem1.n; ++i)
-	  if ((uint32_t)a->mem1.a[i].info - (a->mem1.a[i].info>>32) >= opt->min_seed_len)
-	  kv_push(bwtintv_t, a->mem, a->mem1.a[i]);
-	  }
-	// third pass: LAST-like
-	if (opt->max_mem_intv > 0) {
-	x = 0;
-	while (x < len) {
-	if (seq[x] < 4) {
-	if (1) {
-	bwtintv_t m;
-	x = bwt_seed_strategy1(bwt, len, seq, x, opt->min_seed_len, opt->max_mem_intv, &m);
-	if (m.x[2] > 0) kv_push(bwtintv_t, a->mem, m);
-	} else { // for now, we never come to this block which is slower
-	x = bwt_smem1a(bwt, len, seq, x, start_width, opt->max_mem_intv, &a->mem1, a->tmpv);
-	for (i = 0; i < a->mem1.n; ++i)
-	kv_push(bwtintv_t, a->mem, a->mem1.a[i]);
-	}
-	} else ++x;
-	}
-	}*/
-	//sort
 	ks_introsort(mem_intv, a->mem.n, a->mem.a);
 }
 
-/*static void mem_collect_intv(const mem_opt_t *opt, const bwt_t *bwt, int len, const uint8_t *seq, smem_aux_t *a)
-  {
-  int i, k, x = 0, old_n;
-  int start_width = 1;
-  int split_len = (int)(opt->min_seed_len * opt->split_factor + .499);
-  a->mem.n = 0;
-// first pass: find all SMEMs
-while (x < len) {
-if (seq[x] < 4) {
-x = bwt_smem1(bwt, len, seq, x, start_width, &a->mem1, a->tmpv);
-for (i = 0; i < a->mem1.n; ++i) {
-bwtintv_t *p = &a->mem1.a[i];
-int slen = (uint32_t)p->info - (p->info>>32); // seed length
-if (slen >= opt->min_seed_len)
-kv_push(bwtintv_t, a->mem, *p);
-}
-} else ++x;
-}
-// second pass: find MEMs inside a long SMEM
-old_n = a->mem.n;
-for (k = 0; k < old_n; ++k) {
-bwtintv_t *p = &a->mem.a[k];
-int start = p->info>>32, end = (int32_t)p->info;
-if (end - start < split_len || p->x[2] > opt->split_width) continue;
-bwt_smem1(bwt, len, seq, (start + end)>>1, p->x[2]+1, &a->mem1, a->tmpv);
-for (i = 0; i < a->mem1.n; ++i)
-if ((uint32_t)a->mem1.a[i].info - (a->mem1.a[i].info>>32) >= opt->min_seed_len)
-kv_push(bwtintv_t, a->mem, a->mem1.a[i]);
-}
-// third pass: LAST-like
-if (opt->max_mem_intv > 0) {
-x = 0;
-while (x < len) {
-if (seq[x] < 4) {
-if (1) {
-bwtintv_t m;
-x = bwt_seed_strategy1(bwt, len, seq, x, opt->min_seed_len, opt->max_mem_intv, &m);
-if (m.x[2] > 0) kv_push(bwtintv_t, a->mem, m);
-} else { // for now, we never come to this block which is slower
-x = bwt_smem1a(bwt, len, seq, x, start_width, opt->max_mem_intv, &a->mem1, a->tmpv);
-for (i = 0; i < a->mem1.n; ++i)
-kv_push(bwtintv_t, a->mem, a->mem1.a[i]);
-}
-} else ++x;
-}
-}
-// sort
-ks_introsort(mem_intv, a->mem.n, a->mem.a);
-}*/
 
 void mem_print_gpu(mem_seed_v_gpu *data, int n_reads) {
 		for (int i = 0; i < n_reads; i++)
@@ -2008,7 +1915,7 @@ typedef struct {
 } metadata_gpu_batch_t ;
 
 //void mem_align1_core(const mem_opt_t *opt, const bwt_t *bwt, const bntseq_t *bns, const uint8_t *pac, bseq1_t *seq, int batch_size, int batch_start_idx, mem_alnreg_v *w_regs, int tid, gasal_gpu_storage_v *gpu_storage_vec, const char *read_file, int n_reads, int64_t n_processed, bwt_t_gpu *bwt_gpu, bwt_t_gpu bwt_gpu2) {
-void mem_align1_core(const mem_opt_t *opt, const bwt_t *bwt, const bntseq_t *bns, const uint8_t *pac, bseq1_t *seq, int batch_size, int batch_start_idx, mem_alnreg_v *w_regs, int tid, gasal_gpu_storage_v *gpu_storage_vec, mem_seed_v_gpu *gpu_results) {
+void mem_align1_core(const mem_opt_t *opt, const bwt_t *bwt, const bntseq_t *bns, const uint8_t *pac, bseq1_t *seq, int batch_size, int batch_start_idx, mem_alnreg_v *w_regs, int tid, gasal_gpu_storage_v *gpu_storage_vec, mem_seed_v_gpu *gpu_results, int64_t n_processed) {
     int j,  r;
     extern time_struct *extension_time;
     extern uint64_t *no_of_extensions;
@@ -2041,6 +1948,7 @@ void mem_align1_core(const mem_opt_t *opt, const bwt_t *bwt, const bntseq_t *bns
     else {
         gpu_read_batch_size = (int)ceil((double)batch_size/(double)4) % 2 ? (int)ceil((double)batch_size/(double)4) + 1: (int)ceil((double)batch_size/(double)4);
     }
+    //fprintf(stderr,"input batch  %d batch size %d\n",batch_size,gpu_read_batch_size);
     int internal_batch_count = 0;
     internal_batch_count = (int)ceil(((double)batch_size)/((double)(gpu_read_batch_size)));
 
@@ -2127,6 +2035,8 @@ void mem_align1_core(const mem_opt_t *opt, const bwt_t *bwt, const bntseq_t *bns
             int curr_ref_offset[BOTH_SHORT_LONG]  = {0, 0};
 
             int internal_batch_size = ((batch_size - batch_processed >= gpu_read_batch_size)  ? gpu_read_batch_size : batch_size - batch_processed);
+            //fprintf(stderr,"Internal batch size %d\n",internal_batch_size);
+         
 
             for (j = batch_start_idx + internal_batch_start_idx; j < (batch_start_idx + internal_batch_start_idx) + internal_batch_size; ++j)
 		    {
@@ -2147,7 +2057,7 @@ void mem_align1_core(const mem_opt_t *opt, const bwt_t *bwt, const bntseq_t *bns
                 time_mem_chain = realtime();
                 PUSH_RANGE("mem_chaining",1)
                 //if (batch_start_idx == 0) {
-                    chn = mem_chain(opt, bwt, bns, seq[j].l_seq, (uint8_t*)(read_seq), gpu_results, j);
+                    chn = mem_chain(opt, bwt, bns, seq[j].l_seq, (uint8_t*)(read_seq), gpu_results, j + n_processed);
                 //}
                 //else {
                     //chn = mem_chain(opt, bwt, bns, seq[j].l_seq, (uint8_t*)(read_seq), gpu_results[j-batch_start_idx]);
@@ -2209,6 +2119,7 @@ void mem_align1_core(const mem_opt_t *opt, const bwt_t *bwt, const bntseq_t *bns
                     args->algo = KSW;
                     args->isReverseComplement = false;
                     args->start_pos = WITHOUT_START; // actually "without start" would be sufficient...
+                    //args->zdrop = opt->zdrop;
 
                     // launch alignment processes
                     //[KSW_CPU] using CPU computation
@@ -2532,7 +2443,7 @@ void worker1(void *data, int i, int tid, int batch_size, int total_reads, gasal_
     // worker truncated for gasal - see original function in the original bwamem.
     if (bwa_verbose >= 4)
         printf("=====> Processing read '%s' <=====\n", w->seqs[i].name);
-    mem_align1_core(w->opt, w->bwt, w->bns, w->pac, w->seqs, batch_size, i, w->regs, tid, gpu_storage_vec, w->gpu_results);
+    mem_align1_core(w->opt, w->bwt, w->bns, w->pac, w->seqs, batch_size, i, w->regs, tid, gpu_storage_vec, w->gpu_results, w->n_processed);
     //mem_align1_core(w->opt, w->bwt, w->bns, w->pac, w->seqs, batch_size, i, w->regs, tid, gpu_storage_vec, w->read_file, w->n_reads, w->n_processed, w->bwt_gpu, w->bwt_gpu2);
 
 }
@@ -2557,7 +2468,7 @@ static void worker2(void *data, int i, int tid, int batch_size, int n_reads, gas
     }
 }
 
-void mem_process_seqs(const mem_opt_t *opt, const bwt_t *bwt, const bntseq_t *bns, const uint8_t *pac, int64_t n_processed, int n, bseq1_t *seqs, const mem_pestat_t *pes0, gpuseed_storage_vector *gpuseed_data) {
+void mem_process_seqs(const mem_opt_t *opt, const bwt_t *bwt, const bntseq_t *bns, const uint8_t *pac, int64_t n_processed, int n, bseq1_t *seqs, const mem_pestat_t *pes0, gpuseed_storage_vector *gpuseed_data, mem_seed_v_gpu *gpu_results) {
     worker_t w;
     mem_pestat_t pes[4];
     extern time_struct *extension_time;
@@ -2577,26 +2488,9 @@ void mem_process_seqs(const mem_opt_t *opt, const bwt_t *bwt, const bntseq_t *bn
     w.n_processed = n_processed;
     w.pes = &pes[0];
     w.n_reads = n;
-
-    //fprintf(stderr,"Seq details l: %d %s\n", w.seqs[0].l_seq, w.seqs[0].seq);
-	//fprintf(stderr, "[BWAMEM 1] File bytes skip %llu\n", gpuseed_data->file_bytes_skip);
-
-    double gpuseed = realtime();
-    w.gpu_results = seed_gpu(gpuseed_data, n, n_processed, w.seqs);
-    extension_time[0].gpuseed += (realtime() - gpuseed);
-    gpuseed_data->file_bytes_skip += w.gpu_results->file_bytes_skip;
-    //double time_g = realtime() - gpuseed;
-	//fprintf(stderr, "[BWAMEM 2] File bytes skip %llu\n", gpuseed_data->file_bytes_skip);
-    //mem_print_gpu(w.gpu_results, n);
+    w.gpu_results = gpu_results;
 
     kt_for(opt->n_threads, worker1, &w, /*(opt->flag & MEM_F_PE) ? n >> 1 : */n); // find mapping positions
-    
-    free(w.gpu_results->rbeg);
-    free(w.gpu_results->qbeg);
-    free(w.gpu_results->score);
-    free(w.gpu_results->n_ref_pos_fow_rev_results);
-    free(w.gpu_results->n_ref_pos_fow_rev_prefix_sums);
-    free(w.gpu_results);
     
     double min_exit_time = load_balance_waste_time[0];
     double max_exit_time = load_balance_waste_time[0];
@@ -2614,8 +2508,9 @@ void mem_process_seqs(const mem_opt_t *opt, const bwt_t *bwt, const bntseq_t *bn
             mem_pestat(opt, bns->l_pac, n, w.regs, pes); // otherwise, infer the insert size distribution from data
     }
     
+    double worker2_ti = realtime();
     kt_for(opt->n_threads, worker2, &w, (opt->flag & MEM_F_PE) ? n >> 1 : n); // generate alignment
-    
+	extension_time[0].worker2_time += (realtime()-worker2_ti);    
     /*
         min_exit_time = load_balance_waste_time[0];
         max_exit_time = load_balance_waste_time[0];

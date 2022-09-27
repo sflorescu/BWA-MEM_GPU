@@ -155,6 +155,8 @@ typedef struct{
 	double gpuseed;
 	double aux_bwa_mem;
 	double gpuseed_memalloc_memcpy;
+	double worker2_time;
+
 }time_struct;
 
 #endif

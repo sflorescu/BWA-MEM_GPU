@@ -33,6 +33,31 @@ typedef struct {
 } bwt_t_gpu;
 
 typedef struct {
+        int64_t offset;
+        int32_t len;
+        int32_t n_ambs;
+        uint32_t gi;
+        int32_t is_alt;
+        char *name, *anno;
+} bntann2_t;
+
+typedef struct {
+        int64_t offset;
+        int32_t len;
+        char amb;
+} bntamb2_t;
+
+typedef struct {
+        int64_t l_pac;
+        int32_t n_seqs;
+        uint32_t seed;
+        bntann2_t *anns; // n_seqs elements
+        int32_t n_holes;
+        bntamb2_t *ambs; // n_holes elements
+        FILE *fp_pac;
+} bntseq2_t;
+
+typedef struct {
 	int64_t rbeg;
 	int32_t qbeg, len;
 	int score;
@@ -74,7 +99,7 @@ bwt_t_gpu *bwt_restore_bwt_gpu(const char *fn);
 bwt_t_gpu gpu_cpy_wrapper(bwt_t_gpu *bwt);
 void pre_calc_seed_intervals_wrapper(uint2 *pre_calc_seed_intervals, int pre_calc_seed_len, bwt_t_gpu bwt_gpu);
 void free_gpuseed_data(gpuseed_storage_vector *gpuseed_data);
-mem_seed_v_gpu *seed_gpu(gpuseed_storage_vector *gpuseed_data, int n_reads, int64_t n_processed, bseq1_t *seqs);
+mem_seed_v_gpu *seed_gpu(gpuseed_storage_vector *gpuseed_data);
 
 #ifdef __cplusplus
 }

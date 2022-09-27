@@ -252,7 +252,7 @@ void kt_for(int n_threads, void (*func)(void*,int, int, int, int), void *data, l
 
 		t.w[i].t = &t, t.w[i].i = (func == &worker1) ? i*t.w[i].n_per_thread : i;//i*READ_BATCH_SIZE : i;
 		t.w[i].n_done = 0;
-		t.w[i].orig_read_batch_size = 5000;
+		t.w[i].orig_read_batch_size = 20000;
 
 	}
 	//fprintf(stderr, "n_per_thread=%d\n", t.w[0].n_per_thread);
