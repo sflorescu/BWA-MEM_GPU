@@ -12,24 +12,6 @@
 #include "utils.h"
 #include "bntseq.h"
 #include "kseq.h"
-#include "./GPUSeed/seed_gen.h"
-
-
-#ifdef __cplusplus
-extern "C" {
-#endif
-
-mem_seed_v_gpu *seed_gpu(gpuseed_storage_vector *gpuseed_data);
-
-#ifdef __cplusplus
-}
-#endif
-
-
-
-// J.L. 2019-01-13 - select GPU when using more than one. Use the first available (0) by default.
-#define NB_STREAMS (2)
-
 KSEQ_DECLARE(gzFile)
 
 extern unsigned char nst_nt4_table[256];
@@ -45,14 +27,12 @@ typedef struct {
 	int64_t n_processed;
 	int copy_comment, actual_chunk_size;
 	bwaidx_t *idx;
-	gpuseed_storage_vector *gpuseed_data;
-	mem_seed_v_gpu *gpu_results;
 } ktp_aux_t;
 
 typedef struct {
 	ktp_aux_t *aux;
 	int n_seqs;
-	bseq1_t *seqs;		
+	bseq1_t *seqs;
 } ktp_data_t;
 
 static void *process(void *shared, int step, void *_data)
@@ -90,20 +70,19 @@ static void *process(void *shared, int step, void *_data)
 				fprintf(stderr, "[M::%s] %d single-end sequences; %d paired-end sequences\n", __func__, n_sep[0], n_sep[1]);
 			if (n_sep[0]) {
 				tmp_opt.flag &= ~MEM_F_PE;
-				mem_process_seqs(&tmp_opt, idx->bwt, idx->bns, idx->pac, aux->n_processed, n_sep[0], sep[0], 0, aux->gpuseed_data, aux->gpu_results);
+				mem_process_seqs(&tmp_opt, idx->bwt, idx->bns, idx->pac, aux->n_processed, n_sep[0], sep[0], 0);
 				for (i = 0; i < n_sep[0]; ++i)
 					data->seqs[sep[0][i].id].sam = sep[0][i].sam;
 			}
 			if (n_sep[1]) {
 				tmp_opt.flag |= MEM_F_PE;
-				mem_process_seqs(&tmp_opt, idx->bwt, idx->bns, idx->pac, aux->n_processed + n_sep[0], n_sep[1], sep[1], aux->pes0, aux->gpuseed_data, aux->gpu_results);
+				mem_process_seqs(&tmp_opt, idx->bwt, idx->bns, idx->pac, aux->n_processed + n_sep[0], n_sep[1], sep[1], aux->pes0);
 				for (i = 0; i < n_sep[1]; ++i)
 					data->seqs[sep[1][i].id].sam = sep[1][i].sam;
 			}
 			free(sep[0]); free(sep[1]);
-		} else mem_process_seqs(opt, idx->bwt, idx->bns, idx->pac, aux->n_processed, data->n_seqs, data->seqs, aux->pes0, aux->gpuseed_data, aux->gpu_results);
+		} else mem_process_seqs(opt, idx->bwt, idx->bns, idx->pac, aux->n_processed, data->n_seqs, data->seqs, aux->pes0);
 		aux->n_processed += data->n_seqs;
-		//fprintf(stderr, "[FASTMAP] File bytes skip %llu\n", aux->gpuseed_data->file_bytes_skip);
 		return data;
 	} else if (step == 2) {
 		for (i = 0; i < data->n_seqs; ++i) {
@@ -132,16 +111,9 @@ static void update_a(mem_opt_t *opt, const mem_opt_t *opt0)
 		if (!opt0->pen_unpaired) opt->pen_unpaired *= opt->a;
 	}
 }
-char run_exec_time[20];
-FILE* f_exec_time;
 
-gasal_gpu_storage_v *gpu_storage_vec_arr;
-int gase_aln(int argc, char *argv[])
+int main_mem(int argc, char *argv[])
 {
-
-	// J.L. 2019-05-20  Disabled selection (there's no choice anymore)
-	// gasal_set_device(GPU_SELECT);
-
 	mem_opt_t *opt, opt0;
 	int fd, fd2, i, c, ignore_alt = 0, no_mt_io = 0;
 	int fixed_chunk_size = -1;
@@ -151,19 +123,14 @@ int gase_aln(int argc, char *argv[])
 	void *ko = 0, *ko2 = 0;
 	mem_pestat_t pes[4];
 	ktp_aux_t aux;
-	extern time_struct *extension_time;
 
-	//double aux_bwa_time = realtime();
-
-	//run_exec_time = "run_exec_time.txt";
-	sprintf(run_exec_time, "run_exec_time.txt");
 	memset(&aux, 0, sizeof(ktp_aux_t));
 	memset(pes, 0, 4 * sizeof(mem_pestat_t));
 	for (i = 0; i < 4; ++i) pes[i].failed = 1;
 
 	aux.opt = opt = mem_opt_init();
 	memset(&opt0, 0, sizeof(mem_opt_t));
-	while ((c = getopt(argc, argv, "1paMCSPVYjgozFk:c:v:s:r:t:R:A:B:O:E:U:w:L:d:T:Q:D:m:I:N:W:x:G:h:y:K:X:H:u:b:J:e:l:f:")) >= 0) {
+	while ((c = getopt(argc, argv, "51qpaMCSPVYjuk:c:v:s:r:t:R:A:B:O:E:U:w:L:d:T:Q:D:m:I:N:o:f:W:x:G:h:y:K:X:H:")) >= 0) {
 		if (c == 'k') opt->min_seed_len = atoi(optarg), opt0.min_seed_len = 1;
 		else if (c == '1') no_mt_io = 1;
 		else if (c == 'x') mode = optarg;
@@ -180,6 +147,9 @@ int gase_aln(int argc, char *argv[])
 		else if (c == 'S') opt->flag |= MEM_F_NO_RESCUE;
 		else if (c == 'Y') opt->flag |= MEM_F_SOFTCLIP;
 		else if (c == 'V') opt->flag |= MEM_F_REF_HDR;
+		else if (c == '5') opt->flag |= MEM_F_PRIMARY5 | MEM_F_KEEP_SUPP_MAPQ; // always apply MEM_F_KEEP_SUPP_MAPQ with -5
+		else if (c == 'q') opt->flag |= MEM_F_KEEP_SUPP_MAPQ;
+		else if (c == 'u') opt->flag |= MEM_F_XB;
 		else if (c == 'c') opt->max_occ = atoi(optarg), opt0.max_occ = 1;
 		else if (c == 'd') opt->zdrop = atoi(optarg), opt0.zdrop = 1;
 		else if (c == 'v') bwa_verbose = atoi(optarg);
@@ -190,20 +160,12 @@ int gase_aln(int argc, char *argv[])
 		else if (c == 's') opt->split_width = atoi(optarg), opt0.split_width = 1;
 		else if (c == 'G') opt->max_chain_gap = atoi(optarg), opt0.max_chain_gap = 1;
 		else if (c == 'N') opt->max_chain_extend = atoi(optarg), opt0.max_chain_extend = 1;
+		else if (c == 'o' || c == 'f') xreopen(optarg, "wb", stdout);
 		else if (c == 'W') opt->min_chain_weight = atoi(optarg), opt0.min_chain_weight = 1;
 		else if (c == 'y') opt->max_mem_intv = atol(optarg), opt0.max_mem_intv = 1;
 		else if (c == 'C') aux.copy_comment = 1;
 		else if (c == 'K') fixed_chunk_size = atoi(optarg);
 		else if (c == 'X') opt->mask_level = atof(optarg);
-		else if (c == 'u') opt->seed_type= atoi(optarg);
-		else if (c == 'J') opt->seed_intv= atoi(optarg);
-		else if (c == 'e') opt->dp_type = atoi(optarg);
-		else if (c == 'o') opt->opt_ext = 1;
-		else if (c == 'g') opt->re_seed = 1;
-		else if (c == 'z') opt->use_avx2 = 1;
-		else if (c == 'f') sprintf(run_exec_time, "%s", optarg);
-		else if (c == 'F') opt->shd_filter = 1;
-		else if (c == 'l') opt->read_len = atoi(optarg);
 		else if (c == 'h') {
 			opt0.max_XA_hits = opt0.max_XA_hits_alt = 1;
 			opt->max_XA_hits = opt->max_XA_hits_alt = strtol(optarg, &p, 10);
@@ -267,82 +229,65 @@ int gase_aln(int argc, char *argv[])
 		}
 		else return 1;
 	}
-#ifndef __AVX2__
-	if ( opt->use_avx2 == 1){
-		fprintf(stderr, "AVX2 is not available on this machine\n");
-		return 1;
-	}
-#endif
-	if (opt->read_len == 0){
-	   fprintf(stderr, "Must specify a read length for reporting execution time\n");
-	   return 1;
-	}
+
 	if (rg_line) {
 		hdr_line = bwa_insert_header(rg_line, hdr_line);
 		free(rg_line);
 	}
+
 	if (opt->n_threads < 1) opt->n_threads = 1;
 	if (optind + 1 >= argc || optind + 3 < argc) {
 		fprintf(stderr, "\n");
-		fprintf(stderr, "Usage: gase gase_aln [options] <ref.fa> <reads.fq> \n\n");
+		fprintf(stderr, "Usage: bwa mem [options] <idxbase> <in1.fq> [in2.fq]\n\n");
 		fprintf(stderr, "Algorithm options:\n\n");
 		fprintf(stderr, "       -t INT        number of threads [%d]\n", opt->n_threads);
-		fprintf(stderr, "       -k INT        minimum seed length. For fixed length seeds seed_length = INT [%d]\n", opt->min_seed_len);
+		fprintf(stderr, "       -k INT        minimum seed length [%d]\n", opt->min_seed_len);
 		fprintf(stderr, "       -w INT        band width for banded alignment [%d]\n", opt->w);
-		//fprintf(stderr, "       -d INT        off-diagonal X-dropoff [%d]\n", opt->zdrop);
-		//fprintf(stderr, "       -r FLOAT      look for internal seeds inside a seed longer than {-k} * FLOAT [%g]\n", opt->split_factor);
-		//fprintf(stderr, "       -y INT        seed occurrence for the 3rd round seeding [%ld]\n", (long)opt->max_mem_intv);
+		fprintf(stderr, "       -d INT        off-diagonal X-dropoff [%d]\n", opt->zdrop);
+		fprintf(stderr, "       -r FLOAT      look for internal seeds inside a seed longer than {-k} * FLOAT [%g]\n", opt->split_factor);
+		fprintf(stderr, "       -y INT        seed occurrence for the 3rd round seeding [%ld]\n", (long)opt->max_mem_intv);
 //		fprintf(stderr, "       -s INT        look for internal seeds inside a seed with less than INT occ [%d]\n", opt->split_width);
 		fprintf(stderr, "       -c INT        skip seeds with more than INT occurrences [%d]\n", opt->max_occ);
-		//fprintf(stderr, "       -D FLOAT      drop chains shorter than FLOAT fraction of the longest overlapping chain [%.2f]\n", opt->drop_ratio);
+		fprintf(stderr, "       -D FLOAT      drop chains shorter than FLOAT fraction of the longest overlapping chain [%.2f]\n", opt->drop_ratio);
 		fprintf(stderr, "       -W INT        discard a chain if seeded bases shorter than INT [0]\n");
-		//fprintf(stderr, "       -m INT        perform at most INT rounds of mate rescues for each read [%d]\n", opt->max_matesw);
-		//fprintf(stderr, "       -S            skip mate rescue\n");
-		//fprintf(stderr, "       -P            skip pairing; mate rescue performed unless -S also in use\n");
+		fprintf(stderr, "       -m INT        perform at most INT rounds of mate rescues for each read [%d]\n", opt->max_matesw);
+		fprintf(stderr, "       -S            skip mate rescue\n");
+		fprintf(stderr, "       -P            skip pairing; mate rescue performed unless -S also in use\n");
 		fprintf(stderr, "\nScoring options:\n\n");
 		fprintf(stderr, "       -A INT        score for a sequence match, which scales options -TdBOELU unless overridden [%d]\n", opt->a);
 		fprintf(stderr, "       -B INT        penalty for a mismatch [%d]\n", opt->b);
 		fprintf(stderr, "       -O INT[,INT]  gap open penalties for deletions and insertions [%d,%d]\n", opt->o_del, opt->o_ins);
 		fprintf(stderr, "       -E INT[,INT]  gap extension penalty; a gap of size k cost '{-O} + {-E}*k' [%d,%d]\n", opt->e_del, opt->e_ins);
-		//fprintf(stderr, "       -L INT[,INT]  penalty for 5'- and 3'-end clipping [%d,%d]\n", opt->pen_clip5, opt->pen_clip3);
-		//fprintf(stderr, "       -U INT        penalty for an unpaired read pair [%d]\n\n", opt->pen_unpaired);
-		//fprintf(stderr, "       -x STR        read type. Setting -x changes multiple parameters unless overriden [null]\n");
-		//fprintf(stderr, "                     pacbio: -k17 -W40 -r10 -A1 -B1 -O1 -E1 -L0  (PacBio reads to ref)\n");
-		//fprintf(stderr, "                     ont2d: -k14 -W20 -r10 -A1 -B1 -O1 -E1 -L0  (Oxford Nanopore 2D-reads to ref)\n");
-		//fprintf(stderr, "                     intractg: -B9 -O16 -L5  (intra-species contigs to ref)\n");
+		fprintf(stderr, "       -L INT[,INT]  penalty for 5'- and 3'-end clipping [%d,%d]\n", opt->pen_clip5, opt->pen_clip3);
+		fprintf(stderr, "       -U INT        penalty for an unpaired read pair [%d]\n\n", opt->pen_unpaired);
+		fprintf(stderr, "       -x STR        read type. Setting -x changes multiple parameters unless overridden [null]\n");
+		fprintf(stderr, "                     pacbio: -k17 -W40 -r10 -A1 -B1 -O1 -E1 -L0  (PacBio reads to ref)\n");
+		fprintf(stderr, "                     ont2d: -k14 -W20 -r10 -A1 -B1 -O1 -E1 -L0  (Oxford Nanopore 2D-reads to ref)\n");
+		fprintf(stderr, "                     intractg: -B9 -O16 -L5  (intra-species contigs to ref)\n");
 		fprintf(stderr, "\nInput/output options:\n\n");
-		//fprintf(stderr, "       -p            smart pairing (ignoring in2.fq)\n");
+		fprintf(stderr, "       -p            smart pairing (ignoring in2.fq)\n");
 		fprintf(stderr, "       -R STR        read group header line such as '@RG\\tID:foo\\tSM:bar' [null]\n");
 		fprintf(stderr, "       -H STR/FILE   insert STR to header if it starts with @; or insert lines in FILE [null]\n");
-		//fprintf(stderr, "       -j            treat ALT contigs as part of the primary assembly (i.e. ignore <idxbase>.alt file)\n");
-		//fprintf(stderr, "\n");
-		fprintf(stderr, "       -v INT        verbose level: 1=error, 2=warning, 3=message, 4+=debugging [%d]\n", bwa_verbose);
-		fprintf(stderr, "       -D FLOAT      do not output a secondary alignment if its score is less than (max_score * FLOAT)  [%.2f]\n", opt->drop_ratio);
+		fprintf(stderr, "       -o FILE       sam file to output results to [stdout]\n");
+		fprintf(stderr, "       -j            treat ALT contigs as part of the primary assembly (i.e. ignore <idxbase>.alt file)\n");
+		fprintf(stderr, "       -5            for split alignment, take the alignment with the smallest coordinate as primary\n");
+		fprintf(stderr, "       -q            don't modify mapQ of supplementary alignments\n");
+		fprintf(stderr, "       -K INT        process INT input bases in each batch regardless of nThreads (for reproducibility) []\n");
+		fprintf(stderr, "\n");
+		fprintf(stderr, "       -v INT        verbosity level: 1=error, 2=warning, 3=message, 4+=debugging [%d]\n", bwa_verbose);
 		fprintf(stderr, "       -T INT        minimum score to output [%d]\n", opt->T);
-		//fprintf(stderr, "       -h INT[,INT]  if there are <INT hits with score >80%% of the max score, output all in XA [%d,%d]\n", opt->max_XA_hits, opt->max_XA_hits_alt);
+		fprintf(stderr, "       -h INT[,INT]  if there are <INT hits with score >80%% of the max score, output all in XA [%d,%d]\n", opt->max_XA_hits, opt->max_XA_hits_alt);
 		fprintf(stderr, "       -a            output all alignments for SE or unpaired PE\n");
 		fprintf(stderr, "       -C            append FASTA/FASTQ comment to SAM output\n");
 		fprintf(stderr, "       -V            output the reference FASTA header in the XR tag\n");
 		fprintf(stderr, "       -Y            use soft clipping for supplementary alignments\n");
-		fprintf(stderr, "       -u INT        Seed type. Possible options: 1(all-SMEM), 2(fixed length seeds with no mismatch),\n");
-		fprintf(stderr, "                     3(nov-SMEM), 4(fixed length seeds with at most 1 mismatch) [%d],\n\n", opt->seed_type);
-		fprintf(stderr, "       -J INT        Seed interval for fixed length seeds [%d]\n\n", opt->seed_intv);
-		fprintf(stderr, "       -e INT        Algorithm in the extension stage. Possible options 0(BWA-MEM seed extension with all heuristics), 1(global alignment),\n");
-		fprintf(stderr, "                     2(SW alignment using SSE2) 3 (SW alignment using GPU) [%d],\n\n", opt->dp_type);
-		fprintf(stderr, "       -o            Use SSE2 optimized local alignment or banded BWA-MEM seed extension depending upon \"-e\" option.\n");
-		fprintf(stderr, "                     Global alignment is not optimized.\n\n");
-		fprintf(stderr, "       -g INT        If INT = 1, use BWA-MEM like reseeding with all-SMEM. For now reseeding is only available with all-SMEM[%d]\n", 0);
-		fprintf(stderr, "       -z        	  Use AVX2 optimized local alignment in place of SSE2,\n");
-		fprintf(stderr, "       -F            Use Shifted Hamming distance seed filter,\n");
-		fprintf(stderr, "       -f STR        Use STR as the name of the file to append the execution time,[%s]\n", "run_exec_time.txt");
-		fprintf(stderr, "       -l INT        Must specify a read length for reporting execution time[%d]\n", 0);
 		fprintf(stderr, "       -M            mark shorter split hits as secondary\n\n");
-		//fprintf(stderr, "       -I FLOAT[,FLOAT[,INT[,INT]]]\n");
-		//fprintf(stderr, "                     specify the mean, standard deviation (10%% of the mean if absent), max\n");
-		//fprintf(stderr, "                     (4 sigma from the mean if absent) and min of the insert size distribution.\n");
-		//fprintf(stderr, "                     FR orientation only. [inferred]\n");
+		fprintf(stderr, "       -I FLOAT[,FLOAT[,INT[,INT]]]\n");
+		fprintf(stderr, "                     specify the mean, standard deviation (10%% of the mean if absent), max\n");
+		fprintf(stderr, "                     (4 sigma from the mean if absent) and min of the insert size distribution.\n");
+		fprintf(stderr, "                     FR orientation only. [inferred]\n");
 		fprintf(stderr, "\n");
-		//fprintf(stderr, "Note: Please read the man page for detailed description of the command line and options.\n");
+		fprintf(stderr, "Note: Please read the man page for detailed description of the command line and options.\n");
 		fprintf(stderr, "\n");
 		free(opt);
 		return 1;
@@ -380,8 +325,6 @@ int gase_aln(int argc, char *argv[])
 	} else update_a(opt, &opt0);
 	bwa_fill_scmat(opt->a, opt->b, opt->mat);
 
-	double aux_bwa_time = realtime();
-
 	aux.idx = bwa_idx_load_from_shm(argv[optind]);
 	if (aux.idx == 0) {
 		if ((aux.idx = bwa_idx_load(argv[optind], BWA_IDX_ALL)) == 0) return 1; // FIXME: memory leak
@@ -413,136 +356,9 @@ int gase_aln(int argc, char *argv[])
 			opt->flag |= MEM_F_PE;
 		}
 	}
-
-	gasal_subst_scores sub_scores;
-
-	sub_scores.match = opt-> a;
-	sub_scores.mismatch = opt->b;
-	sub_scores.gap_open = opt->o_del;
-	sub_scores.gap_extend = opt->e_del;
-
-	gasal_copy_subst_scores(&sub_scores);
-
-	// J.L. 2019-01-07 10:43 added args object
-	Parameters *args;
-	args = new Parameters(0, NULL);
-	args->algo = KSW;
-	args->start_pos = WITHOUT_START;
-
-	extension_time[0].aux_bwa_mem += (realtime() - aux_bwa_time);
-
-	double gpuseed_memalloc_memcpy = realtime();
-	
-    aux.gpuseed_data =  (gpuseed_storage_vector*)calloc(1, sizeof(gpuseed_storage_vector));
-
-	aux.gpuseed_data->query_file = argv[optind];
-	aux.gpuseed_data->read_file = argv[optind + 1];
-	aux.gpuseed_data->file_bytes_skip = 0;
-	aux.gpuseed_data->min_seed_size = opt->min_seed_len;
-	opt->re_seed ? aux.gpuseed_data->is_smem = 0 : aux.gpuseed_data->is_smem = 1;
-	
-	char *str = (char*)calloc(strlen(aux.gpuseed_data->query_file) + 10, 1);
-	strcpy(str, aux.gpuseed_data->query_file); strcat(str, ".bwt");
-	aux.gpuseed_data->bwt = bwt_restore_bwt_gpu(str);
-	free(str);
-	str = (char*)calloc(strlen(aux.gpuseed_data->query_file) + 10, 1);
-	strcpy(str, aux.gpuseed_data->query_file); strcat(str, ".sa");
-	bwt_restore_sa_gpu(str, aux.gpuseed_data->bwt);
-	free(str);
-
-	aux.gpuseed_data->bwt_gpu = gpu_cpy_wrapper(aux.gpuseed_data->bwt);
-	aux.gpuseed_data->pre_calc_seed_len = 13;
-	aux.gpuseed_data->pre_calc_seed_intervals_flag = 0;
-
-	extension_time[0].gpuseed_memalloc_memcpy += (realtime() - gpuseed_memalloc_memcpy);
-	
-	double gpuseed_time = realtime();
-	aux.gpu_results = seed_gpu(aux.gpuseed_data);
-	extension_time[0].gpuseed += (realtime() - gpuseed_time);
-	
-	
-	double time_free_seed = realtime();
-	free_gpuseed_data(aux.gpuseed_data);
-	free(aux.gpuseed_data);
-	extension_time[0].gpu_mem_free += (realtime() - time_free_seed);
-
-
-	double time_extend = realtime();
-    
-    // J.L. 2019-02-14 16:26 create twice as many gasal_gpu_storage_v (vectors of stream): one for "short" ends, one for "long" ends (each of them having 2 streams) (and also delete all of them, see below destructor)
-    gpu_storage_vec_arr =  (gasal_gpu_storage_v*)calloc( 2 * (opt->n_threads), sizeof(gasal_gpu_storage_v));
-	int z;
-	for (z = 0; z <  2 * (opt->n_threads); z++) {
-		// J.L. 2018-12-21 change these to reflect ctors in GASAL2 
-		gpu_storage_vec_arr[z] = gasal_init_gpu_storage_v(NB_STREAMS);
-		//gasal_init_streams(&(gpu_storage_vec_arr[z]), 1000*300, 1000*300, 250*1000*600, 80*1000*600, 500*1000, 200*1000, LOCAL, WITH_START);
-		// J.L. 2019-01-07 10:43 TODO remove numbers from here, put them in DEFINES.
-		// Original values below
-		/*
-			gasal_init_streams(&(gpu_storage_vec_arr[z]), 
-					1000*300 , 		//host_max_query_batch_bytes
-					1000*300 , 		//gpu_max_query_batch_bytes
-					250*1000*600 , 	//host_max_target_batch_bytes
-					80*1000*600 , 	//gpu_max_target_batch_bytes
-					500*1000, 		//host_max_n_alns.
-					200*1000, 		//gpu_max_n_alns
-					args);
-		*/
-		
-		// working values : 205, 2, 1000, 152, 300
-		// working values : 120, 3, 1000, 152, 300 
-		// note that these values are not strict anymore because all fields can be extended.
-		int Coef = 190; // avg number of seeds per sequence  //FIXME: 2 or less makes weird target_lengths
-		int Coef2 = 2;
-		int NbrOfSeqs = 1000;
-		int ReadLength = 152; // max is 152, mean is 152/2, taking a margin.
-		int RefLength = 300; // max is ~300, mean is 300/2, taking a margin. 
-		gasal_init_streams(&(gpu_storage_vec_arr[z]), 
-				Coef * NbrOfSeqs * ReadLength , 		//host_max_query_batch_bytes
-				Coef * NbrOfSeqs * ReadLength , 		//gpu_max_query_batch_bytes
-				Coef * NbrOfSeqs * RefLength , 	//host_max_target_batch_bytes
-				Coef * NbrOfSeqs * RefLength , 	//gpu_max_target_batch_bytes
-				Coef2 * Coef * NbrOfSeqs, 		//host_max_n_alns.
-				Coef2 * Coef * NbrOfSeqs, 		//gpu_max_n_alns
-				args);
-		/**/
-		
-
-	}
-	extension_time[0].gpu_mem_alloc += (realtime() - time_extend);
-
-	//fprintf(stderr, "Time required to allocate gpu memory and host memory for %d threads = %.3f seconds\n", opt->n_threads, extension_time[0].gpu_mem_alloc);
-	FILE* f_exec_time_metadata = fopen(run_exec_time, "a");
-	// The columns in the tab seperated run_exec_time are:
-	// 1- read length
-	//	2- seed type
-	//	3- min. seed length
-	//	4- seed intv
-	//	5- DP algo
-	//	6- execution time in seconds
-	//There is no new line at the end so more values may be printed on the same line, if desired.
-	 fprintf(f_exec_time_metadata,"%d\t%d\t%d\t%d\t%d\t%d\t",opt->n_threads, opt->read_len, opt->seed_type, opt->min_seed_len, opt->seed_intv, opt->dp_type);
-
 	bwa_print_sam_hdr(aux.idx->bns, hdr_line);
 	aux.actual_chunk_size = fixed_chunk_size > 0? fixed_chunk_size : opt->chunk_size * opt->n_threads;
 	kt_pipeline(no_mt_io? 1 : 2, process, &aux, 3);
-
-	time_extend = realtime();
-	for (z = 0; z < (opt->n_threads) * 2 ; z++) {
-		// J.L. 2018-12-21 change these to reflect ctors in GASAL2
-		gasal_destroy_streams(&(gpu_storage_vec_arr[z]), args);
-		gasal_destroy_gpu_storage_v(&(gpu_storage_vec_arr[z]));
-	}
-
-    free(aux.gpu_results->rbeg);
-    free(aux.gpu_results->qbeg);
-    free(aux.gpu_results->score);
-    free(aux.gpu_results->n_ref_pos_fow_rev_results);
-    free(aux.gpu_results->n_ref_pos_fow_rev_prefix_sums);
-    free(aux.gpu_results);	
-	free(gpu_storage_vec_arr);
-	extension_time[0].gpu_mem_free += (realtime() - time_extend);
-	//aux_bwa_time = realtime();
 	free(hdr_line);
 	free(opt);
 	bwa_idx_destroy(aux.idx);
@@ -552,7 +368,6 @@ int gase_aln(int argc, char *argv[])
 		kseq_destroy(aux.ks2);
 		err_gzclose(fp2); kclose(ko2);
 	}
-	//extension_time[0].aux_bwa_mem += (realtime() - aux_bwa_time);
 	return 0;
 }
 
@@ -625,6 +440,7 @@ int main_fastmap(int argc, char *argv[])
 		}
 		err_puts("//");
 	}
+
 	smem_itr_destroy(itr);
 	bwa_idx_destroy(idx);
 	kseq_destroy(seq);
