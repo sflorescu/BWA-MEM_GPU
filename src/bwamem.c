@@ -2055,7 +2055,7 @@ void mem_align1_core(const mem_opt_t *opt, const bwt_t *bwt, const bntseq_t *bns
                 // ===NOTE: computing chains, store them in the mem_chain_v chn
                 chain_preprocess = realtime();
                 time_mem_chain = realtime();
-                PUSH_RANGE("mem_chaining",1)
+                //PUSH_RANGE("mem_chaining",1)
                 //if (batch_start_idx == 0) {
                     chn = mem_chain(opt, bwt, bns, seq[j].l_seq, (uint8_t*)(read_seq), gpu_results, j + n_processed);
                 //}
@@ -2076,7 +2076,7 @@ void mem_align1_core(const mem_opt_t *opt, const bwt_t *bwt, const bntseq_t *bns
                 extension_time[tid].time_mem_flt_chained_seeds += (realtime() - time_mem_flt_chained_seeds);
 
                 extension_time[tid].chain_preprocess += (realtime() - chain_preprocess);
-                POP_RANGE
+                //POP_RANGE
 
 
                 // ===NOTE: CHAINS DONE. Fetching sequence for seeds

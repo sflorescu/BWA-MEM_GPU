@@ -32,7 +32,8 @@
 #include <stdio.h>
 #include <zlib.h>
 
-#define USE_NVTX 1
+// Uncomment following section in order to use NVTX in BWA.
+/*#define USE_NVTX 1
 
 #ifdef USE_NVTX
 #include "/usr/local/cuda-11.0/targets/x86_64-linux/include/nvtx3/nvToolsExt.h"
@@ -56,7 +57,7 @@ const int num_colors = sizeof(colors)/sizeof(uint32_t);
 #else
 #define PUSH_RANGE(name,cid)
 #define POP_RANGE
-#endif
+#endif */
 
 
 #ifdef __GNUC__
