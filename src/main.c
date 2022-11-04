@@ -54,7 +54,7 @@ static int usage()
 	fprintf(stderr, "         bwtupdate     update .bwt to the new format\n");
 	fprintf(stderr, "         bwt2sa        generate SA from BWT and Occ\n");*/
 	fprintf(stderr, "\n");
-	fprintf(stderr, "Note: To use bwa-gasal2, you need to first index the genome with `bwa-gasal2 index'.\n\n");
+	fprintf(stderr, "Note: To use bwa-gasal2, you need to first index the genome with `./build_index.sh'.\n\n");
 	return 1;
 }
 
