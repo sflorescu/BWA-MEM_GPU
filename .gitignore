@@ -1,5 +1,11 @@
-bwa
+bwa-gasal2
 *.o
+*.cuo
+*.cppo
+*.out
+*.txt
+*.tsv
+*.a
 *.txt
 *.log
 *.fq
@@ -9,8 +15,11 @@ bwa
 *.fa
 *.fa.*
 *.sam
+*.qdrep
+*.sqlite
 lib/*
 obj/*
-GPUSeed/include/*
-GPUSeed/libs/*
-GPUSeed/objs/*
+include/*
+src/GPUSeed/include/*
+src/GPUSeed/libs/*
+src/GPUSeed/objs/*
