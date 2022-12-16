@@ -4,17 +4,14 @@
 
 **BWA-MEM_GPUSEED_GASAL2** is a modified implementation of **BWA-MEM** ([https://bio-bwa.sourceforge.net/](https://bio-bwa.sourceforge.net/)) that uses two GPU-accelerated libraries to perform both the seeding and extension parts on CUDA enabled GPUs.
 
-For our datasets, we found that our implementation showed speedups between 2× and 2.8× over the baseline program for multithreaded execution. For the alignment results, we found that our integrated program has around 2% of lines in the main result different from the baseline program, and if we filter alignments with mapping quality below 20, the percentage of different lines reduces to around 1%. 
+For our datasets, we found that our implementation showed speedups between 2× and 2.8× over the baseline program for multithreaded execution on a platform with 2 CPUs installed on the same motherboard and a Nvidia RTX 2080Ti. For single thread execution our implementation achieves speedups close to the theoretical maximums, specificaly between 6.82× and 8.72×, considering acceleration of the seeding and extension portions of the code.
 
 <!-- GETTING STARTED -->
 ## Getting Started
 
-This is a paragraph of text.
-
 ### Prerequisites
 
-This is an example of how to list things you need to use the software and how to install them.
-* Nvidia GPU preferably with compute 60 or newer and at least 8GB of VRAM. 
+* Nvidia GPU preferably with compute 6.0 or newer and at least 8GB of VRAM. 
 * CUDA Toolkit 11.0+
 * GCC 9+
 * G++ 9+
@@ -36,7 +33,7 @@ This is an example of how to list things you need to use the software and how to
    ./configure.sh <path to cuda installation directory>
    make GPU_SM_ARCH=<GPU SM architecture> MAX_SEQ_LEN=<maximum sequence length> N_CODE=<code for "N", e.g. 0x4E if the bases are represented by ASCII characters> [N_PENALTY=<penalty for aligning "N" against any other base]
    ```
-   Example for compute 75 (i.e., RTX 2080 Ti):
+   Example for compute 7.5 (i.e., RTX 2080 Ti):
    ```sh   
    make GPU_SM_ARCH=sm_75 MAX_SEQ_LEN=300 N_CODE=4 N_PENALTY=1
    ```
@@ -50,7 +47,7 @@ This is an example of how to list things you need to use the software and how to
    GPU_SM_ARCH=sm_XX
    ```
    
-   Example for compute 75 (i.e., RTX 2080 Ti):
+   Example for compute 7.5 (i.e., RTX 2080 Ti):
       ```sh
    GPU_SM_ARCH=sm_75
    ```
